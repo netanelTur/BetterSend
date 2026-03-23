@@ -1,0 +1,95 @@
+# ── Build outputs ─────────────────────────────────────────────────────────────
+build/
+cmake-build-*/
+out/
+dist/
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+
+# ── CMake ─────────────────────────────────────────────────────────────────────
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+_deps/
+install_manifest.txt
+
+# ── Flutter ───────────────────────────────────────────────────────────────────
+flutter_app/.dart_tool/
+flutter_app/.flutter-plugins
+flutter_app/.flutter-plugins-dependencies
+flutter_app/.packages
+flutter_app/build/
+flutter_app/pubspec.lock
+flutter_app/android/.gradle/
+flutter_app/android/local.properties
+flutter_app/android/key.properties
+flutter_app/ios/Pods/
+flutter_app/ios/Podfile.lock
+flutter_app/ios/.symlinks/
+flutter_app/ios/Flutter/Generated.xcconfig
+flutter_app/ios/Flutter/flutter_export_environment.sh
+flutter_app/macos/Pods/
+flutter_app/macos/Podfile.lock
+flutter_app/windows/flutter/generated_plugin_registrant.cc
+flutter_app/windows/flutter/generated_plugin_registrant.h
+flutter_app/windows/flutter/generated_plugins.cmake
+*.g.dart
+*.freezed.dart
+
+# ── IDE / Editors ─────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+xcuserdata/
+.vs/
+*.suo
+*.user
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+*~
+
+# ── Logs & Debug output ───────────────────────────────────────────────────────
+*.log
+logs/
+bettersend_debug.log
+
+# ── Android ───────────────────────────────────────────────────────────────────
+*.apk
+*.aab
+*.keystore
+local.properties
+
+# ── iOS / macOS ───────────────────────────────────────────────────────────────
+*.ipa
+*.dSYM/
+DerivedData/
+
+# ── Windows ───────────────────────────────────────────────────────────────────
+*.msix
+*.msixbundle
+
+# ── Test artifacts ────────────────────────────────────────────────────────────
+Testing/
+CTestCostData.txt
+
+# ── Secrets / Config ──────────────────────────────────────────────────────────
+.env
+*.pem
+*.p12
+*.p8
+google-services.json
+GoogleService-Info.plist
+
+# ── FetchContent cache (can be re-downloaded) ─────────────────────────────────
+# Uncomment if you want to exclude downloaded dependencies from git
+# cpp_core/build/_deps/

@@ -1,0 +1,25 @@
+name: bettersend
+description: Cross-platform file & clipboard transfer — no internet required.
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  ffi: ^2.1.0              # dart:ffi bindings
+  path: ^1.9.0              # path manipulation (basename, join, etc.)
+  path_provider: ^2.1.0    # get temp/documents directory for saving received files
+
+  # שלב 3 (Drag & Drop — Desktop):
+  # desktop_drop: ^0.4.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
