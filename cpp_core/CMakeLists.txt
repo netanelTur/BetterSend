@@ -1,5 +1,13 @@
 cmake_minimum_required(VERSION 3.20)
 
+# 1. הגדרת הפרויקט (פותר את האזהרות הראשונות שקיבלת)
+project(BetterSendCore LANGUAGES CXX)
+
+# 2. דרישת תקן C++20 (פותר את שגיאות הקומפילציה)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF) # מונע הרחבות ספציפיות לקומפיילר כדי לשמור על קוד נייד
+
 include(FetchContent)
 
 # ── Asio (standalone, no Boost) ───────────────────────────────────────────────

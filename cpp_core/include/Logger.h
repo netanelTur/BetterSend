@@ -6,6 +6,7 @@
 #include <chrono>
 #include <format>
 #include <source_location>
+#include <utility>
 #include "Constants.h"
 
 // ── Logger ────────────────────────────────────────────────────────────────────
@@ -58,9 +59,9 @@ public:
     template<typename... Args>
     void log(Level level,
              std::string_view component,
+             const std::source_location& loc,
              std::format_string<Args...> fmt,
-             Args&&... args,
-             const std::source_location& loc = std::source_location::current())
+             Args&&... args)
     {
         if (level < minLevel_) return;
 
@@ -123,8 +124,7 @@ private:
 
 #define BS_LOG(level, component, ...) \
     ::BetterSend::Logger::instance().log( \
-        ::BetterSend::Logger::Level::level, component, __VA_ARGS__, \
-        std::source_location::current())
+        ::BetterSend::Logger::Level::level, component, std::source_location::current(), __VA_ARGS__)
 
 #define BS_LOG_DEBUG(component, ...)   BS_LOG(Debug,   component, __VA_ARGS__)
 #define BS_LOG_INFO(component, ...)    BS_LOG(Info,    component, __VA_ARGS__)
