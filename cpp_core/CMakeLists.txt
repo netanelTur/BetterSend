@@ -1,12 +1,12 @@
 cmake_minimum_required(VERSION 3.20)
 
-# 1. הגדרת הפרויקט (פותר את האזהרות הראשונות שקיבלת)
-project(BetterSendCore LANGUAGES CXX)
 
-# 2. דרישת תקן C++20 (פותר את שגיאות הקומפילציה)
+project(BetterSendCore LANGUAGES CXX)
+set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF) # מונע הרחבות ספציפיות לקומפיילר כדי לשמור על קוד נייד
+set(CMAKE_CXX_EXTENSIONS OFF)
 
 include(FetchContent)
 
@@ -46,6 +46,10 @@ target_include_directories(bettersend_core
 target_compile_definitions(bettersend_core
     PUBLIC ASIO_STANDALONE
 )
+
+if(MSVC)
+    target_compile_options(bettersend_core PRIVATE /Zc:preprocessor)
+endif()
 
 # ── Platform-specific linking ─────────────────────────────────────────────────
 if(APPLE)
