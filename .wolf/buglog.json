@@ -1,4 +1,37 @@
 {
   "version": 1,
-  "bugs": []
+  "bugs": [
+    {
+      "id": "bug-001",
+      "timestamp": "2026-06-01T15:21:37.692Z",
+      "error_message": "Missing error handling in is",
+      "file": "CLAUDE.md",
+      "root_cause": "Code path had no error handling — exceptions would propagate uncaught",
+      "fix": "Added try/catch block",
+      "tags": [
+        "auto-detected",
+        "error-handling",
+        "md"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-01T15:21:37.692Z"
+    },
+    {
+      "id": "bug-002",
+      "timestamp": "2026-06-01T15:22:46.346Z",
+      "error_message": "Significant refactor of ",
+      "file": "CLAUDE.md",
+      "root_cause": "70 lines replaced/restructured",
+      "fix": "Rewrote 100→48 lines (70 removed)",
+      "tags": [
+        "auto-detected",
+        "refactor",
+        "md"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-06-01T15:22:46.346Z"
+    }
+  ]
 }

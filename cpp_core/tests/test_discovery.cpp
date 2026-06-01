@@ -39,36 +39,36 @@ using namespace std::chrono_literals;
 // ─────────────────────────────────────────────────────────────────────────────
 
 TEST(DiscoveryTest, StartAndStop_NoCrashOrDeadlock) {
-    // Arrange + Act + Assert (smoke test)
-    // auto disc = std::make_unique<MdnsDiscovery>();
-    // disc->startAdvertising("TestDevice", 9001);
-    // std::this_thread::sleep_for(100ms);
-    // disc->stop();  // must return, no deadlock
-    GTEST_SKIP() << "MdnsDiscovery not implemented yet";
+	// Arrange + Act + Assert (smoke test)
+	// auto disc = std::make_unique<MdnsDiscovery>();
+	// disc->startAdvertising("TestDevice", 9001);
+	// std::this_thread::sleep_for(100ms);
+	// disc->stop();  // must return, no deadlock
+	GTEST_SKIP() << "MdnsDiscovery not implemented yet";
 }
 
 TEST(DiscoveryTest, SelfDiscovery_LoopbackFindsOwnDevice) {
-    // Works reliably on macOS; Linux requires avahi-daemon.
-    //
-    // Arrange
-    // auto disc = std::make_unique<MdnsDiscovery>();
-    // std::promise<Device> promise;
-    // auto future = promise.get_future();
-    //
-    // disc->startAdvertising("LoopbackDevice", 9002);
-    // disc->startDiscovery([&promise](Device d) {
-    //     if (d.name == "LoopbackDevice") promise.set_value(d);
-    // });
-    //
-    // Assert
-    // ASSERT_EQ(future.wait_for(3s), std::future_status::ready);
-    // EXPECT_EQ(future.get().port, 9002);
-    GTEST_SKIP() << "MdnsDiscovery not implemented yet";
+	// Works reliably on macOS; Linux requires avahi-daemon.
+	//
+	// Arrange
+	// auto disc = std::make_unique<MdnsDiscovery>();
+	// std::promise<Device> promise;
+	// auto future = promise.get_future();
+	//
+	// disc->startAdvertising("LoopbackDevice", 9002);
+	// disc->startDiscovery([&promise](Device d) {
+	//     if (d.name == "LoopbackDevice") promise.set_value(d);
+	// });
+	//
+	// Assert
+	// ASSERT_EQ(future.wait_for(3s), std::future_status::ready);
+	// EXPECT_EQ(future.get().port, 9002);
+	GTEST_SKIP() << "MdnsDiscovery not implemented yet";
 }
 
 TEST(DiscoveryTest, StopBeforeStart_NoCrash) {
-    // Calling stop() on a never-started discovery must be safe.
-    // auto disc = std::make_unique<MdnsDiscovery>();
-    // EXPECT_NO_THROW(disc->stop());
-    GTEST_SKIP() << "MdnsDiscovery not implemented yet";
+	// Calling stop() on a never-started discovery must be safe.
+	// auto disc = std::make_unique<MdnsDiscovery>();
+	// EXPECT_NO_THROW(disc->stop());
+	GTEST_SKIP() << "MdnsDiscovery not implemented yet";
 }

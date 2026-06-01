@@ -33,50 +33,50 @@ static constexpr std::string_view kComponent = "Discovery";
 
 class MdnsDiscovery : public IDiscovery {
 public:
-    MdnsDiscovery() = default;
-    ~MdnsDiscovery() override { stop(); }
+	MdnsDiscovery() = default;
+	~MdnsDiscovery() override { stop(); }
 
-    void startAdvertising(const std::string& deviceName, int port) override {
-        BS_LOG_INFO(kComponent, "Starting advertising: name={} port={}", deviceName, port);
-        running_ = true;
-        advertiseThread_ = std::thread([this, deviceName, port]() {
-            // TODO: open UDP socket, join multicast, respond to queries
-            // Use: mdns_socket_open_ipv4() / mdns_announce_multicast()
-            BS_LOG_DEBUG(kComponent, "Advertising thread started");
-            while (running_) {
-                // TODO: mdns query/response loop
-            }
-            BS_LOG_DEBUG(kComponent, "Advertising thread exiting");
-        });
-    }
+	void startAdvertising(const std::string& deviceName, int port) override {
+		BS_LOG_INFO(kComponent, "Starting advertising: name={} port={}", deviceName, port);
+		running_ = true;
+		advertiseThread_ = std::thread([this, deviceName, port]() {
+			// TODO: open UDP socket, join multicast, respond to queries
+			// Use: mdns_socket_open_ipv4() / mdns_announce_multicast()
+			BS_LOG_DEBUG(kComponent, "Advertising thread started");
+			while (running_) {
+				// TODO: mdns query/response loop
+			}
+			BS_LOG_DEBUG(kComponent, "Advertising thread exiting");
+		});
+	}
 
-    void startDiscovery(std::function<void(Device)> onFound) override {
-        BS_LOG_INFO(kComponent, "Starting discovery for {}", kServiceType);
-        discoveryThread_ = std::thread([this, onFound = std::move(onFound)]() {
-            // TODO: mdns_query_send() then loop on mdns_query_recv()
-            // For each SRV record: build Device{name, ip, port} and call onFound
-            BS_LOG_DEBUG(kComponent, "Discovery thread started");
-            while (running_) {
-                // TODO: poll / select on socket, parse SRV+A records
-            }
-            BS_LOG_DEBUG(kComponent, "Discovery thread exiting");
-        });
-    }
+	void startDiscovery(std::function<void(Device)> onFound) override {
+		BS_LOG_INFO(kComponent, "Starting discovery for {}", kServiceType);
+		discoveryThread_ = std::thread([this, onFound = std::move(onFound)]() {
+			// TODO: mdns_query_send() then loop on mdns_query_recv()
+			// For each SRV record: build Device{name, ip, port} and call onFound
+			BS_LOG_DEBUG(kComponent, "Discovery thread started");
+			while (running_) {
+				// TODO: poll / select on socket, parse SRV+A records
+			}
+			BS_LOG_DEBUG(kComponent, "Discovery thread exiting");
+		});
+	}
 
-    void stop() override {
-        if (!running_.exchange(false)) return; // already stopped
-        BS_LOG_INFO(kComponent, "Stopping discovery and advertising");
-        // TODO: close sockets here to unblock recv() in threads
-        if (advertiseThread_.joinable())  advertiseThread_.join();
-        if (discoveryThread_.joinable()) discoveryThread_.join();
-        BS_LOG_DEBUG(kComponent, "All threads stopped");
-    }
+	void stop() override {
+		if (!running_.exchange(false)) return; // already stopped
+		BS_LOG_INFO(kComponent, "Stopping discovery and advertising");
+		// TODO: close sockets here to unblock recv() in threads
+		if (advertiseThread_.joinable())  advertiseThread_.join();
+		if (discoveryThread_.joinable()) discoveryThread_.join();
+		BS_LOG_DEBUG(kComponent, "All threads stopped");
+	}
 
 private:
-    std::atomic<bool> running_{false};
-    std::thread       advertiseThread_;
-    std::thread       discoveryThread_;
-    // TODO: add socket handles (int or platform handle type) as members
+	std::atomic<bool> running_{false};
+	std::thread       advertiseThread_;
+	std::thread       discoveryThread_;
+	// TODO: add socket handles (int or platform handle type) as members
 };
 
 } // namespace BetterSend

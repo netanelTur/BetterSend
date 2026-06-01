@@ -23,19 +23,19 @@ namespace BetterSend {
 
 class IDiscovery {
 public:
-    virtual ~IDiscovery() = default;
+	virtual ~IDiscovery() = default;
 
-    // Begin advertising this device so peers can discover it.
-    // deviceName — display name sent in mDNS records
-    // port       — TCP port ITransport::startServer is listening on
-    virtual void startAdvertising(const std::string& deviceName, int port) = 0;
+	// Begin advertising this device so peers can discover it.
+	// deviceName — display name sent in mDNS records
+	// port       — TCP port ITransport::startServer is listening on
+	virtual void startAdvertising(const std::string& deviceName, int port) = 0;
 
-    // Begin scanning for peers.
-    // onFound — called (from a background thread) each time a new peer appears
-    virtual void startDiscovery(std::function<void(Device)> onFound) = 0;
+	// Begin scanning for peers.
+	// onFound — called (from a background thread) each time a new peer appears
+	virtual void startDiscovery(std::function<void(Device)> onFound) = 0;
 
-    // Stop both advertising and discovery; blocks until background threads exit.
-    virtual void stop() = 0;
+	// Stop both advertising and discovery; blocks until background threads exit.
+	virtual void stop() = 0;
 };
 
 } // namespace BetterSend

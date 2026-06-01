@@ -1,6 +1,11 @@
-// ── ASK CLAUDE FOR UI ─────────────────────────────────────────────────────────
-// Prompt to give Claude when you're ready to build the DeviceListScreen UI:
+import 'package:flutter/material.dart';
+import '../ffi_bridge.dart';
+import 'transfer_screen.dart';
+
+// ── DeviceListScreen ──────────────────────────────────────────────────────────
+// Device picker: user selects which nearby device to send to.
 //
+// Design prompt (when building full UI):
 //   "Design the DeviceListScreen for BetterSend.
 //    Purpose: user picks which nearby device to send a file or clipboard to.
 //    Layout:
@@ -12,70 +17,65 @@
 //      - Pull-to-refresh: triggers re-scan.
 //    On 'Send' tap: show a brief haptic + navigate to TransferScreen.
 //    Match the same blue-to-indigo accent from HomeScreen."
-// ─────────────────────────────────────────────────────────────────────────────
-
-import 'package:flutter/material.dart';
-import '../ffi_bridge.dart';
-import 'transfer_screen.dart';
 
 class DeviceListScreen extends StatelessWidget {
-  final List<DiscoveredDevice> devices;
-  final BetterSendBridge bridge;
-  final String? filePath;       // null when sending clipboard
-  final String? clipboardText;  // null when sending a file
+	final List<DiscoveredDevice> devices;
+	final BetterSendBridge bridge;
+	final String? filePath;       // null when sending clipboard
+	final String? clipboardText;  // null when sending a file
 
-  const DeviceListScreen({
-    super.key,
-    required this.devices,
-    required this.bridge,
-    this.filePath,
-    this.clipboardText,
-  });
+	const DeviceListScreen({
+		super.key,
+		required this.devices,
+		required this.bridge,
+		this.filePath,
+		this.clipboardText,
+	});
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Choose Device')),
-      body: devices.isEmpty
-          ? const Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 16),
-                  Text('Scanning for devices...'),
-                ],
-              ),
-            )
-          : ListView.builder(
-              itemCount: devices.length,
-              itemBuilder: (context, index) {
-                final device = devices[index];
-                return ListTile(
-                  leading: const Icon(Icons.phone_android),
-                  title: Text(device.name),
-                  subtitle: Text('${device.ip}:${device.port}'),
-                  trailing: ElevatedButton(
-                    onPressed: () => _send(context, device),
-                    child: const Text('Send'),
-                  ),
-                );
-              },
-            ),
-    );
-  }
+	@override
+	Widget build(BuildContext context) {
+		return Scaffold(
+			appBar: AppBar(title: const Text('Choose Device')),
+			body: devices.isEmpty
+				? const Center(
+					child: Column(
+						mainAxisSize: MainAxisSize.min,
+						children: [
+							CircularProgressIndicator(),
+							SizedBox(height: 16),
+							Text('Scanning for devices...'),
+						],
+					),
+				)
+				: ListView.builder(
+					itemCount: devices.length,
+					itemBuilder: (context, index) {
+						final device = devices[index];
+						return ListTile(
+							leading: const Icon(Icons.phone_android),
+							title: Text(device.name),
+							subtitle: Text('${device.ip}:${device.port}'),
+							trailing: ElevatedButton(
+								onPressed: () => _send(context, device),
+								child: const Text('Send'),
+							),
+						);
+					},
+				),
+		);
+	}
 
-  void _send(BuildContext context, DiscoveredDevice device) {
-    if (filePath != null) {
-      bridge.sendFile(device, filePath!);
-    } else if (clipboardText != null) {
-      bridge.sendClipboard(device, clipboardText!);
-    }
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => TransferScreen(device: device),
-      ),
-    );
-  }
+	void _send(BuildContext context, DiscoveredDevice device) {
+		if (filePath != null) {
+			bridge.sendFile(device, filePath!);
+		} else if (clipboardText != null) {
+			bridge.sendClipboard(device, clipboardText!);
+		}
+		Navigator.push(
+			context,
+			MaterialPageRoute(
+				builder: (_) => TransferScreen(device: device),
+			),
+		);
+	}
 }

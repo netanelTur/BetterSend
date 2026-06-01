@@ -11,12 +11,12 @@ namespace BetterSend {
 // Encoded to/from the wire format by IProtocol.
 
 struct MessageHeader {
-    enum class Type : uint8_t { File, Clipboard };
+	enum class Type : uint8_t { File, Clipboard };
 
-    Type        type{};
-    std::string name;        // Filename (empty for Clipboard)
-    std::size_t size{};      // Payload size in bytes
-    std::string senderName;
+	Type        type{};
+	std::string name;        // Filename (empty for Clipboard)
+	std::size_t size{};      // Payload size in bytes
+	std::string senderName;
 };
 
 // ── Wire format ───────────────────────────────────────────────────────────────
@@ -42,17 +42,17 @@ struct MessageHeader {
 
 class IProtocol {
 public:
-    virtual ~IProtocol() = default;
+	virtual ~IProtocol() = default;
 
-    // Encode header → wire bytes (4-byte length prefix + JSON).
-    [[nodiscard]] virtual std::vector<uint8_t> encodeHeader(
-        const MessageHeader& header) = 0;
+	// Encode header → wire bytes (4-byte length prefix + JSON).
+	[[nodiscard]] virtual std::vector<uint8_t> encodeHeader(
+		const MessageHeader& header) = 0;
 
-    // Decode wire bytes → MessageHeader.
-    // data must contain at least the 4-byte prefix and the full JSON.
-    // Throws std::runtime_error on malformed input.
-    [[nodiscard]] virtual MessageHeader decodeHeader(
-        std::span<const uint8_t> data) = 0;
+	// Decode wire bytes → MessageHeader.
+	// data must contain at least the 4-byte prefix and the full JSON.
+	// Throws std::runtime_error on malformed input.
+	[[nodiscard]] virtual MessageHeader decodeHeader(
+		std::span<const uint8_t> data) = 0;
 };
 
 } // namespace BetterSend

@@ -3,147 +3,141 @@ import 'dart:io';
 import 'package:ffi/ffi.dart';
 
 // ── ffi_bridge.dart ───────────────────────────────────────────────────────────
-// כל הגדרות ה-FFI לחיבור Flutter ↔ bettersend_core (.so / .dylib / .dll).
+// Flutter ↔ bettersend_core (.so / .dylib / .dll) via dart:ffi.
 //
-// קובץ זה אחראי על:
-//   1. טעינת ה-shared library לפי פלטפורמה
-//   2. הגדרת typedefs של כל פונקציות ה-C API
-//   3. מחלקת BetterSendBridge — wrapper נוח לקריאה מה-UI
+// Mock mode: when the native library is not yet built, _mockMode = true
+// and all calls fall back to in-process stubs so the UI runs for development.
 //
-// ── איך dart:ffi עובד ─────────────────────────────────────────────────────────
-//   לכל פונקציה C צריך להגדיר:
-//   a. NativeFunction typedef — החתימה ב-C (עם Pointer, Int32, etc.)
-//   b. DartFunction typedef — החתימה ב-Dart (עם Pointer, int, etc.)
-//   c. lookup — טעינת הפונקציה מה-library
-//
-// תיעוד: https://dart.dev/guides/libraries/c-interop
+// Docs: https://dart.dev/guides/libraries/c-interop
 
 // ── 1. Load library ───────────────────────────────────────────────────────────
 
-DynamicLibrary _loadLibrary() {
-  if (Platform.isAndroid) {
-    return DynamicLibrary.open('libbettersend_core.so');
-  } else if (Platform.isIOS) {
-    // ב-iOS ה-library מוטמעת בתוך ה-binary (static linking)
-    return DynamicLibrary.process();
-  } else if (Platform.isMacOS) {
-    return DynamicLibrary.open('libbettersend_core.dylib');
-  } else if (Platform.isWindows) {
-    return DynamicLibrary.open('bettersend_core.dll');
-  }
-  throw UnsupportedError('Platform not supported: ${Platform.operatingSystem}');
+bool _mockMode = false;
+
+DynamicLibrary? _tryLoadLibrary() {
+	try {
+		if (Platform.isAndroid) return DynamicLibrary.open('libbettersend_core.so');
+		if (Platform.isIOS)     return DynamicLibrary.process();
+		if (Platform.isMacOS)   return DynamicLibrary.open('libbettersend_core.dylib');
+		if (Platform.isWindows) return DynamicLibrary.open('bettersend_core.dll');
+	} catch (_) {}
+	return null;
 }
 
-final _lib = _loadLibrary();
+final DynamicLibrary? _lib = () {
+	final lib = _tryLoadLibrary();
+	if (lib == null) _mockMode = true;
+	return lib;
+}();
 
 // ── 2. Native typedefs ────────────────────────────────────────────────────────
-//
-// TODO: הגדר typedef לכל פונקציה ב-bettersend_api.cpp
-//
-// דוגמה לפונקציה פשוטה:
-//   typedef NativeBettersendCreate = Pointer<Void> Function(Pointer<Utf8> deviceName);
-//   typedef DartBettersendCreate   = Pointer<Void> Function(Pointer<Utf8> deviceName);
-//
-// דוגמה ל-callback (DeviceFoundCallback):
-//   typedef NativeDeviceFoundCallback = Void Function(
+
+// bettersend_echo(const char* text) → const char*
+typedef _NativeEcho = Pointer<Utf8> Function(Pointer<Utf8> text);
+typedef _DartEcho   = Pointer<Utf8> Function(Pointer<Utf8> text);
+
+// Called when a new peer is found via mDNS.
+// typedef NativeDeviceFoundCallback = Void Function(
 //     Pointer<Utf8> name, Pointer<Utf8> ip, Int32 port);
-//   typedef DartDeviceFoundCallback = void Function(
+// typedef DartDeviceFoundCallback = void Function(
 //     Pointer<Utf8> name, Pointer<Utf8> ip, int port);
-//
-// הגדר typedefs עבור:
-//   bettersend_create
-//   bettersend_destroy
-//   bettersend_start_server
-//   bettersend_start_advertising
-//   bettersend_start_discovery
-//   bettersend_send_file
-//   bettersend_send_clipboard
-//   bettersend_clipboard_read    (שלב 2)
-//   bettersend_clipboard_write   (שלב 2)
+
+// Called when an incoming transfer completes.
+// typedef NativeTransferReceivedCallback = Void Function(
+//     Int32 type, Pointer<Utf8> senderName, Pointer<Utf8> name,
+//     Pointer<Utf8> data, Int64 sizeBytes);
 
 // ── 3. Lookup functions ───────────────────────────────────────────────────────
-//
-// TODO: לאחר הגדרת ה-typedefs, טען כל פונקציה כך:
-//   final _bettersendCreate = _lib.lookupFunction<
-//     NativeBettersendCreate, DartBettersendCreate>('bettersend_create');
+
+final _echo = _lib?.lookupFunction<_NativeEcho, _DartEcho>('bettersend_echo');
+
+// TODO: lookup remaining API functions:
+//   final _create    = _lib?.lookupFunction<...>('bettersend_create');
+//   final _destroy   = _lib?.lookupFunction<...>('bettersend_destroy');
+//   final _startServer      = _lib?.lookupFunction<...>('bettersend_start_server');
+//   final _startAdvertising = _lib?.lookupFunction<...>('bettersend_start_advertising');
+//   final _startDiscovery   = _lib?.lookupFunction<...>('bettersend_start_discovery');
+//   final _sendFile         = _lib?.lookupFunction<...>('bettersend_send_file');
+//   final _sendClipboard    = _lib?.lookupFunction<...>('bettersend_send_clipboard');
 
 // ── 4. BetterSendBridge ───────────────────────────────────────────────────────
 
-/// Wrapper נוח שמחביא את הפרטים של FFI מ-UI code.
+/// Wrapper that hides FFI details from UI code.
 ///
-/// שימוש מה-UI:
+/// Usage:
 ///   final bridge = BetterSendBridge('iPhone-Yoni');
 ///   bridge.startServer(9000, onReceive: (transfer) { setState(...) });
 ///   bridge.startDiscovery(onFound: (device) { setState(...) });
 ///   bridge.sendFile(device, '/path/to/photo.jpg');
 ///   bridge.dispose();
 class BetterSendBridge {
-  // TODO: הוסף Pointer<Void> _handle לאחר שתממש bettersend_create
+	// TODO: Pointer<Void> _handle — add after bettersend_create is looked up
 
-  BetterSendBridge(String deviceName) {
-    // TODO: _handle = _bettersendCreate(deviceName.toNativeUtf8())
-  }
+	BetterSendBridge(String deviceName) {
+		// TODO: _handle = _create!(deviceName.toNativeUtf8())
+	}
 
-  /// הפעל TCP server.
-  /// [port] — הפורט שעליו להאזין (ברירת מחדל: 9000)
-  /// [onReceive] — יקרא ב-thread של Dart עם פרטי ההעברה
-  void startServer(int port, {required Function(ReceivedTransfer) onReceive}) {
-    // TODO: צור NativeCallable עבור TransferReceivedCallback
-    //       קרא ל-bettersend_start_server(_handle, port, callback.nativeFunction)
-  }
+	/// Round-trip echo — verifies the Dart ↔ C++ FFI pipeline.
+	/// In mock mode: returns '[mock] $text'.
+	String echo(String text) {
+		if (_mockMode || _echo == null) return '[mock] $text';
+		final ptr    = _echo!(text.toNativeUtf8());
+		final result = ptr.toDartString();
+		// result points into a thread-local C++ buffer — copy before next call
+		return result;
+	}
 
-  /// התחל פרסום ברשת.
-  void startAdvertising(int port) {
-    // TODO: bettersend_start_advertising(_handle, port)
-  }
+	void startServer(int port, {required Function(ReceivedTransfer) onReceive}) {
+		// TODO: NativeCallable for TransferReceivedCallback
+		//       _startServer!(_handle, port, callback.nativeFunction)
+	}
 
-  /// התחל גילוי מכשירים ברשת.
-  /// [onFound] — יקרא לכל מכשיר חדש שנמצא
-  void startDiscovery({required Function(DiscoveredDevice) onFound}) {
-    // TODO: צור NativeCallable עבור DeviceFoundCallback
-    //       קרא ל-bettersend_start_discovery(_handle, callback.nativeFunction)
-  }
+	void startAdvertising(int port) {
+		// TODO: _startAdvertising!(_handle, port)
+	}
 
-  /// שלח קובץ למכשיר.
-  void sendFile(DiscoveredDevice device, String filePath) {
-    // TODO: bettersend_send_file(_handle, ip, port, filePath)
-  }
+	void startDiscovery({required Function(DiscoveredDevice) onFound}) {
+		// TODO: NativeCallable for DeviceFoundCallback
+		//       _startDiscovery!(_handle, callback.nativeFunction)
+	}
 
-  /// שלח clipboard text למכשיר.
-  void sendClipboard(DiscoveredDevice device, String text) {
-    // TODO: bettersend_send_clipboard(_handle, ip, port, text)
-  }
+	void sendFile(DiscoveredDevice device, String filePath) {
+		// TODO: _sendFile!(_handle, device.ip.toNativeUtf8(), device.port, filePath.toNativeUtf8())
+	}
 
-  /// שחרר משאבים. קרא ל-dispose() כשה-widget נסגר.
-  void dispose() {
-    // TODO: bettersend_destroy(_handle)
-  }
+	void sendClipboard(DiscoveredDevice device, String text) {
+		// TODO: _sendClipboard!(_handle, device.ip.toNativeUtf8(), device.port, text.toNativeUtf8())
+	}
+
+	void dispose() {
+		// TODO: _destroy!(_handle)
+	}
 }
 
 // ── Data classes ──────────────────────────────────────────────────────────────
 
-/// מכשיר שנמצא ע"י mDNS.
+/// Peer device discovered via mDNS.
 class DiscoveredDevice {
-  final String name;
-  final String ip;
-  final int port;
-  const DiscoveredDevice({required this.name, required this.ip, required this.port});
+	final String name;
+	final String ip;
+	final int    port;
+	const DiscoveredDevice({required this.name, required this.ip, required this.port});
 }
 
-/// העברה שהתקבלה.
+/// Completed incoming transfer.
 class ReceivedTransfer {
-  final TransferType type;
-  final String senderName;
-  final String name;       // שם קובץ (ריק עבור clipboard)
-  final String data;       // path לקובץ או clipboard text
-  final int sizeBytes;
-  const ReceivedTransfer({
-    required this.type,
-    required this.senderName,
-    required this.name,
-    required this.data,
-    required this.sizeBytes,
-  });
+	final TransferType type;
+	final String senderName;
+	final String name;      // filename (empty for clipboard)
+	final String data;      // file path or clipboard text
+	final int    sizeBytes;
+	const ReceivedTransfer({
+		required this.type,
+		required this.senderName,
+		required this.name,
+		required this.data,
+		required this.sizeBytes,
+	});
 }
 
 enum TransferType { file, clipboard }

@@ -23,14 +23,14 @@ namespace BetterSend {
 
 class IClipboard {
 public:
-    virtual ~IClipboard() = default;
+	virtual ~IClipboard() = default;
 
-    // Read current text from the system clipboard.
-    // Returns empty string if the clipboard is empty or contains non-text data.
-    [[nodiscard]] virtual std::string read() = 0;
+	// Read current text from the system clipboard.
+	// Returns empty string if the clipboard is empty or contains non-text data.
+	[[nodiscard]] virtual std::string read() = 0;
 
-    // Write text to the system clipboard.
-    virtual void write(const std::string& text) = 0;
+	// Write text to the system clipboard.
+	virtual void write(const std::string& text) = 0;
 };
 
 } // namespace BetterSend

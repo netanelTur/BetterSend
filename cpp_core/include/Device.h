@@ -13,12 +13,12 @@ namespace BetterSend {
 // a DeviceType enum and a factory — don't add fields ad-hoc.
 
 struct Device {
-    std::string name;  // Human-readable device name advertised via mDNS
-    std::string ip;    // IPv4 address
-    int         port;  // TCP port the device is listening on
+	std::string name;  // Human-readable device name advertised via mDNS
+	std::string ip;    // IPv4 address
+	int         port;  // TCP port the device is listening on
 
-    // Equality + ordering by IP:port (useful for deduplication in sets)
-    auto operator<=>(const Device&) const = default;
+	// Equality + ordering by IP:port (useful for deduplication in sets)
+	auto operator<=>(const Device&) const = default;
 };
 
 } // namespace BetterSend
