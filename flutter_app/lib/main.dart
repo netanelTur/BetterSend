@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'ffi_bridge.dart';
 import 'screens/home_screen.dart';
@@ -12,8 +13,15 @@ import 'screens/splash_screen.dart';
 //   3. Pass bridge down to HomeScreen
 
 void main() {
-	// TODO: read device name from device_info_plus or let user set it in settings
-	const String deviceName = 'MyDevice';
+	// Each machine advertises a unique name so peers can distinguish each other.
+	// Platform.localHostname returns the OS hostname (Windows, macOS, Linux);
+	// on mobile we'd fall back to device_info_plus, but Phase 1 is desktop-only.
+	String deviceName;
+	try {
+		deviceName = Platform.localHostname;
+	} catch (_) {
+		deviceName = 'BetterSend';
+	}
 	final bridge = BetterSendBridge(deviceName);
 	runApp(BetterSendApp(bridge: bridge));
 }

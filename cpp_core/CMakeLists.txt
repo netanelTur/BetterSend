@@ -35,10 +35,15 @@ add_library(bettersend_core SHARED
     src/bettersend_api.cpp
 )
 
-# Apple: use Bonjour (dns_sd.h) — goes through mDNSResponder, sandbox-compatible
-# Other: use raw mDNS via mdns.h
+# IDiscovery impl is chosen per platform. Strategy pattern means swapping
+# the .cpp here is all it takes — every other file uses IDiscovery / makeDiscovery().
+#   Apple   → BonjourDiscovery (dns_sd.h + AWDL, sandbox-compatible)
+#   Windows → BleDiscovery (WinRT BLE advertising + scanning — Phase 1)
+#   Other   → MdnsDiscovery (raw mDNS via mdns.h — dev fallback / Android later)
 if(APPLE)
     target_sources(bettersend_core PRIVATE src/BonjourDiscovery.cpp)
+elseif(WIN32)
+    target_sources(bettersend_core PRIVATE src/BleDiscovery_Windows.cpp)
 else()
     target_sources(bettersend_core PRIVATE src/MdnsDiscovery.cpp)
 endif()
@@ -64,5 +69,39 @@ if(APPLE)
 elseif(ANDROID)
     target_link_libraries(bettersend_core PRIVATE log)
 elseif(WIN32)
-    target_link_libraries(bettersend_core PRIVATE ws2_32 mswsock iphlpapi)
+    target_link_libraries(bettersend_core PRIVATE
+        ws2_32 mswsock iphlpapi
+        # WinRT runtime + COM/OLE for BleDiscovery_Windows.cpp (cppwinrt)
+        runtimeobject ole32 oleaut32
+    )
+
+    # cppwinrt projection headers live in the Windows SDK, not in MinGW.
+    # Locate the newest installed version and add its `cppwinrt/` include dir.
+    if(NOT BETTERSEND_CPPWINRT_INCLUDE)
+        file(GLOB _sdk_versions
+            LIST_DIRECTORIES TRUE
+            "C:/Program Files (x86)/Windows Kits/10/Include/*"
+        )
+        list(SORT _sdk_versions ORDER DESCENDING)
+        foreach(_sdk_dir ${_sdk_versions})
+            if(IS_DIRECTORY "${_sdk_dir}/cppwinrt/winrt")
+                set(BETTERSEND_CPPWINRT_INCLUDE "${_sdk_dir}/cppwinrt"
+                    CACHE PATH "Path to Windows SDK cppwinrt projection headers")
+                break()
+            endif()
+        endforeach()
+    endif()
+    if(BETTERSEND_CPPWINRT_INCLUDE)
+        message(STATUS "cppwinrt include: ${BETTERSEND_CPPWINRT_INCLUDE}")
+        target_include_directories(bettersend_core PRIVATE "${BETTERSEND_CPPWINRT_INCLUDE}")
+    else()
+        message(FATAL_ERROR
+            "Could not find cppwinrt headers under any Windows SDK. "
+            "Install the Windows SDK (any 10.0.x) or set BETTERSEND_CPPWINRT_INCLUDE manually.")
+    endif()
+
+    # Windows 10+ required for BLE Advertisement APIs.
+    target_compile_definitions(bettersend_core PRIVATE
+        WINVER=0x0A00 _WIN32_WINNT=0x0A00
+    )
 endif()

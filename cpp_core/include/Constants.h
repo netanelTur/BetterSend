@@ -13,6 +13,25 @@ inline constexpr int     kMdnsTtlSeconds      = 255;
 inline constexpr char    kServiceType[]       = "_bettersend._tcp.local.";
 inline constexpr char    kMdnsMulticastAddr[] = "224.0.0.251";
 
+// ── BLE (Phase 1 cross-platform discovery — no shared network needed) ─────────
+// GATT service UUID for the post-discovery handshake phase (read SSID + PSK
+// from peer once a hotspot needs bringing up). Not used during advertising:
+// a 128-bit UUID alone consumes 18 of the 31 legacy-advertisement bytes,
+// leaving no room for a name. v4 random, custom range. Same on every platform.
+inline constexpr char    kBleServiceUuid[]    = "5BE77ECD-A1B2-4F1A-8C5D-7F8E9D2C4A6B";
+
+// Advertising marker. Bluetooth SIG company ID 0xFFFF is reserved for
+// development/internal use. We tag every BetterSend advertisement with this
+// company ID plus a 4-byte magic prefix, then pack the device name behind it:
+//
+//   ManufacturerData = [companyId=0xFFFF][magic=BE 77 EC D0][deviceName UTF-8]
+//
+// Total advertisement payload (AD Flags 3 + ManufacturerData 1+1+2+4+N = 8+N)
+// = 11+N bytes. A 20-char device name still fits comfortably under 31.
+inline constexpr uint16_t kBleCompanyId       = 0xFFFF;
+inline constexpr uint8_t  kBleMagicBytes[]    = {0xBE, 0x77, 0xEC, 0xD0};
+inline constexpr int      kBleMaxNameLen      = 20;
+
 // ── Protocol ──────────────────────────────────────────────────────────────────
 inline constexpr uint32_t kHeaderLengthBytes  = 4;     // size prefix (big-endian)
 inline constexpr uint32_t kMaxHeaderSizeBytes = 4096;  // guard against malformed headers
