@@ -99,3 +99,6 @@ GoogleService-Info.plist
 
 # ── Local caches (clangd index, screenshots, scratch) ────────────────────────
 .cache/
+
+# ── Per-developer notes / runbooks ───────────────────────────────────────────
+*.local.md
