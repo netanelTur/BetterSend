@@ -93,3 +93,26 @@ GoogleService-Info.plist
 # ── FetchContent cache (can be re-downloaded) ─────────────────────────────────
 # Uncomment if you want to exclude downloaded dependencies from git
 # cpp_core/build/_deps/
+
+# ── .wolf/ — each dev keeps their own local OpenWolf state ────────────────────
+# All these files mutate every Claude session and conflict cross-team.
+# Kept tracked: OPENWOLF.md, identity.md, config.json, cron-manifest.json,
+# reframe-frameworks.md, hooks/*.js, hooks/package.json (static, shared).
+.wolf/memory.md
+.wolf/anatomy.md
+.wolf/cerebrum.md
+.wolf/buglog.json
+.wolf/token-ledger.json
+.wolf/cron-state.json
+.wolf/designqc-report.json
+.wolf/designqc-captures/
+.wolf/suggestions.json
+.wolf/hooks/_session.json
+
+# ── Flutter desktop runner dirs (regenerate locally per OS) ───────────────────
+flutter_app/windows/
+flutter_app/macos/
+flutter_app/linux/
+
+# ── clangd index cache ────────────────────────────────────────────────────────
+.cache/
