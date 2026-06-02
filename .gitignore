@@ -93,3 +93,7 @@ GoogleService-Info.plist
 # ── FetchContent cache (can be re-downloaded) ─────────────────────────────────
 # Uncomment if you want to exclude downloaded dependencies from git
 # cpp_core/build/_deps/
+
+# ── OpenWolf ──────────────────────────────────────────────────────────────────
+.wolf/
+
