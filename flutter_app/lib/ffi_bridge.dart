@@ -41,6 +41,9 @@ typedef _NativeStartDisc = Void Function(
 typedef _DartStartDisc   = void Function(
 	Pointer<Void>, Pointer<NativeFunction<NativeDeviceFoundCb>>);
 
+typedef _NativeFreeCstr  = Void Function(Pointer<Utf8>);
+typedef _DartFreeCstr    = void Function(Pointer<Utf8>);
+
 // ── 3. Lookup functions ───────────────────────────────────────────────────────
 
 final _echo             = _lib.lookupFunction<_NativeEcho,     _DartEcho>    ('bettersend_echo');
@@ -48,6 +51,7 @@ final _create           = _lib.lookupFunction<_NativeCreate,   _DartCreate>  ('b
 final _destroy          = _lib.lookupFunction<_NativeDestroy,  _DartDestroy> ('bettersend_destroy');
 final _startAdvertising = _lib.lookupFunction<_NativeStartAdv, _DartStartAdv>('bettersend_start_advertising');
 final _startDiscovery   = _lib.lookupFunction<_NativeStartDisc,_DartStartDisc>('bettersend_start_discovery');
+final _freeCstr         = _lib.lookupFunction<_NativeFreeCstr, _DartFreeCstr>('bettersend_free_cstr');
 
 // ── 4. BetterSendBridge ───────────────────────────────────────────────────────
 
@@ -74,14 +78,17 @@ class BetterSendBridge {
 
 	/// Scan for nearby BetterSend devices; [onFound] called for each.
 	void startDiscovery({required void Function(DiscoveredDevice) onFound}) {
-		// NativeCallable.listener posts callback to the Dart isolate — safe from C threads
+		// NativeCallable.listener posts callback to the Dart isolate — safe from C threads.
+		// Explicit Pointer<Utf8> annotation: with listener mode, runtime instances arrive
+		// as Pointer<Never> and the typed toDartString extension would not resolve otherwise.
+		// C++ heap-allocates name/ip; we own them and must call _freeCstr.
 		_discoveryCb = NativeCallable<NativeDeviceFoundCb>.listener(
-			(namePtr, ipPtr, port) {
-				onFound(DiscoveredDevice(
-					name: namePtr.toDartString(),
-					ip:   ipPtr.toDartString(),
-					port: port,
-				));
+			(Pointer<Utf8> namePtr, Pointer<Utf8> ipPtr, int port) {
+				final name = namePtr.cast<Utf8>().toDartString();
+				final ip   = ipPtr.cast<Utf8>().toDartString();
+				_freeCstr(namePtr.cast<Utf8>());
+				_freeCstr(ipPtr.cast<Utf8>());
+				onFound(DiscoveredDevice(name: name, ip: ip, port: port));
 			},
 		);
 		_startDiscovery(_handle, _discoveryCb!.nativeFunction);

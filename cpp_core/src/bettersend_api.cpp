@@ -99,12 +99,22 @@ void bettersend_start_discovery(void* handle, DeviceFoundCallback onFound) {
 	try {
 		auto* ctx = static_cast<BetterSend::BetterSendContext*>(handle);
 		ctx->discovery->startDiscovery([onFound](BetterSend::Device d) {
-			onFound(d.name.c_str(), d.ip.c_str(), d.port);
+			// Dart-side NativeCallable.listener is async — d destructs before Dart reads.
+			// Heap-allocate copies; Dart owns them and calls bettersend_free_cstr.
+			char* name = new char[d.name.size() + 1];
+			std::memcpy(name, d.name.c_str(), d.name.size() + 1);
+			char* ip = new char[d.ip.size() + 1];
+			std::memcpy(ip, d.ip.c_str(), d.ip.size() + 1);
+			onFound(name, ip, d.port);
 		});
 		BS_LOG_INFO("API", "Discovery started");
 	} catch (const std::exception& e) {
 		BS_LOG_ERROR("API", "bettersend_start_discovery failed: {}", e.what());
 	}
+}
+
+void bettersend_free_cstr(const char* p) {
+	delete[] const_cast<char*>(p);
 }
 
 void bettersend_send_file(void* handle, const char* ip, int port,

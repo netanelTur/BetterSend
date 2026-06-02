@@ -1004,14 +1004,22 @@
       <div class="code-cell"><span class="kw">void</span> <span class="fn">bettersend_start_discovery</span>(<span class="kw">void</span>* handle,
                                      <span class="ty">DeviceFoundCallback</span> onFound) {
   ctx-&gt;discovery-&gt;<span class="fn">startDiscovery</span>([onFound](<span class="ty">BetterSend::Device</span> d) {
-    <span class="fn">onFound</span>(d.name.<span class="fn">c_str</span>(), d.ip.<span class="fn">c_str</span>(), d.port);
+    <span class="kw">char</span>* name = <span class="kw">new char</span>[d.name.<span class="fn">size</span>() + 1];
+    <span class="fn">std::memcpy</span>(name, d.name.<span class="fn">c_str</span>(), d.name.<span class="fn">size</span>() + 1);
+    <span class="kw">char</span>* ip   = <span class="kw">new char</span>[d.ip.<span class="fn">size</span>() + 1];
+    <span class="fn">std::memcpy</span>(ip, d.ip.<span class="fn">c_str</span>(), d.ip.<span class="fn">size</span>() + 1);
+    <span class="fn">onFound</span>(name, ip, d.port);  <span class="cm">// Dart owns; calls bettersend_free_cstr</span>
   });
+}
+
+<span class="kw">void</span> <span class="fn">bettersend_free_cstr</span>(<span class="kw">const char</span>* p) {
+  <span class="kw">delete</span>[] <span class="fn">const_cast</span>&lt;<span class="kw">char</span>*&gt;(p);
 }</div>
       <div class="anno-cell key">
         <div>
-          Lambda עם <code>[onFound]</code> capture: עוטף את ה-C callback בתוך std::function.<br>
-          <code>.c_str()</code>: מחזיר <code>const char*</code> — תקף רק בזמן הקריאה.<br>
-          Flutter מעתיק את הstring ב-<code>toDartString()</code> לפני שהpointer נהרס.
+          Dart-side <code>NativeCallable.listener</code> הוא <strong>async</strong>: הוא queueה את הקריאה ל-Dart isolate ומחזיר מיד.<br>
+          לכן <code>d</code> ייהרס לפני ש-Dart יקרא את ה-pointers — חובה <strong>heap-alloc</strong> והעברת ownership.<br>
+          <code>bettersend_free_cstr</code>: Dart קורא לזה אחרי <code>toDartString()</code> כדי לשחרר את ה-buffer.
         </div>
       </div>
     </div>
@@ -1106,16 +1114,20 @@
     <div class="code-row highlight">
       <div class="code-cell"><span class="kw">void</span> <span class="fn">startDiscovery</span>({<span class="kw">required void</span> <span class="ty">Function</span>(<span class="ty">DiscoveredDevice</span>) onFound}) {
   _discoveryCb = <span class="ty">NativeCallable</span>&lt;<span class="ty">NativeDeviceFoundCb</span>&gt;.<span class="fn">listener</span>(
-    (namePtr, ipPtr, port) =&gt; <span class="fn">onFound</span>(<span class="ty">DiscoveredDevice</span>(
-      name: namePtr.<span class="fn">toDartString</span>(),
-      ip:   ipPtr.<span class="fn">toDartString</span>(),
-      port: port)));
+    (<span class="ty">Pointer</span>&lt;<span class="ty">Utf8</span>&gt; namePtr, <span class="ty">Pointer</span>&lt;<span class="ty">Utf8</span>&gt; ipPtr, <span class="kw">int</span> port) {
+      <span class="kw">final</span> name = namePtr.<span class="fn">cast</span>&lt;<span class="ty">Utf8</span>&gt;().<span class="fn">toDartString</span>();
+      <span class="kw">final</span> ip   = ipPtr.<span class="fn">cast</span>&lt;<span class="ty">Utf8</span>&gt;().<span class="fn">toDartString</span>();
+      <span class="fn">_freeCstr</span>(namePtr.<span class="fn">cast</span>&lt;<span class="ty">Utf8</span>&gt;());  <span class="cm">// release C-allocated buffer</span>
+      <span class="fn">_freeCstr</span>(ipPtr.<span class="fn">cast</span>&lt;<span class="ty">Utf8</span>&gt;());
+      <span class="fn">onFound</span>(<span class="ty">DiscoveredDevice</span>(name: name, ip: ip, port: port));
+    });
   <span class="fn">_startDiscovery</span>(_handle, _discoveryCb!.nativeFunction);
 }</div>
       <div class="anno-cell key">
         <div>
-          <code>NativeCallable.listener</code>: יוצר C function pointer שמעביר קריאות ל-Dart isolate — thread-safe.<br>
-          C++ קורא לcallback מthread רקע → <code>listener</code> מעביר לthead הUI אוטומטית.<br>
+          <code>NativeCallable.listener</code>: מעביר קריאות מ-C thread → Dart isolate <strong>async</strong>.<br>
+          <strong>הערה קריטית:</strong> ב-listener mode הטיפוסים הגנריים של ה-Pointer לא שורדים את ה-isolate hop — ב-runtime הם מגיעים כ-<code>Pointer&lt;Never&gt;</code>. חובה <strong>annotation מפורש</strong> על פרמטרי ה-closure + <code>.cast&lt;Utf8&gt;()</code> ב-runtime כדי ש-<code>toDartString</code> ימצא את ה-extension.<br>
+          <strong>Lifetime:</strong> C++ heap-alloc את ה-strings; אחרי <code>toDartString</code> חובה לקרוא ל-<code>_freeCstr</code> אחרת זה memory leak.<br>
           <code>_discoveryCb</code> חייב להישמר (member var) — אם יינפה, ה-C pointer יהפוך ללא תקף.
         </div>
       </div>
