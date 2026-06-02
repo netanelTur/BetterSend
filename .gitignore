@@ -33,9 +33,10 @@ flutter_app/ios/Podfile.lock
 flutter_app/ios/.symlinks/
 flutter_app/ios/Flutter/Generated.xcconfig
 flutter_app/ios/Flutter/flutter_export_environment.sh
-# Per-developer platform runner dirs — each dev runs `flutter create --platforms=<os>` locally
+# Per-developer platform runner dirs. macOS Runner.xcodeproj/ stays tracked
+# because it carries the build phase that copies libbettersend_core.dylib into
+# the app bundle (see commit 5360a84).
 flutter_app/windows/
-flutter_app/macos/
 flutter_app/linux/
 *.g.dart
 *.freezed.dart
