@@ -33,11 +33,10 @@ flutter_app/ios/Podfile.lock
 flutter_app/ios/.symlinks/
 flutter_app/ios/Flutter/Generated.xcconfig
 flutter_app/ios/Flutter/flutter_export_environment.sh
-flutter_app/macos/Pods/
-flutter_app/macos/Podfile.lock
-flutter_app/windows/flutter/generated_plugin_registrant.cc
-flutter_app/windows/flutter/generated_plugin_registrant.h
-flutter_app/windows/flutter/generated_plugins.cmake
+# Per-developer platform runner dirs — each dev runs `flutter create --platforms=<os>` locally
+flutter_app/windows/
+flutter_app/macos/
+flutter_app/linux/
 *.g.dart
 *.freezed.dart
 
@@ -97,3 +96,5 @@ GoogleService-Info.plist
 # ── OpenWolf ──────────────────────────────────────────────────────────────────
 .wolf/
 
+# ── Local caches (clangd index, screenshots, scratch) ────────────────────────
+.cache/
