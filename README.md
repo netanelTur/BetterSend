@@ -93,7 +93,7 @@ flutter run -d windows
 ```
 **One-time:** after the first `flutter run`, copy `bettersend_core.dll` plus the three MinGW runtime DLLs (`libgcc_s_seh-1.dll`, `libstdc++-6.dll`, `libwinpthread-1.dll`) into `flutter_app/build/windows/x64/runner/Debug/`. TODO: a post-build CMake step to automate this, matching the Xcode build phase on macOS.
 
-> **Phase 1 transport (BLE → Mobile Hotspot) is not yet implemented.** The current build uses `MdnsDiscovery` as a dev fallback, which only works when both machines are on the same Wi-Fi. The real no-shared-network path lands with `BleDiscovery` + `IConnectionBroker`.
+> **Phase 1 discovery (BLE advertise + scan) is live on Windows.** Mac side (`BleDiscovery_Mac.mm`, CoreBluetooth) and the post-discovery connection broker (Mobile Hotspot ↔ CoreWLAN join) are the next pieces. Until the broker lands, peers found via BLE expose `Device.ip = "ble:<addr>"` as a placeholder — no actual file transfer yet.
 
 ## Project structure
 
@@ -102,13 +102,14 @@ BetterSend/
 ├── cpp_core/
 │   ├── include/          # Interfaces + data types
 │   │   ├── IDiscovery.h  ITransport.h  IProtocol.h  ITransferable.h
-│   │   ├── BonjourDiscovery.h  MdnsDiscovery.h
+│   │   ├── BonjourDiscovery.h  MdnsDiscovery.h  BleDiscovery.h
 │   │   ├── FileTransferable.h  TextTransferable.h
 │   │   ├── Device.h  Constants.h  Logger.h
 │   │   └── mdns.h            # Single-header mDNS (mjansson, public domain)
 │   ├── src/
-│   │   ├── BonjourDiscovery.cpp   # Apple only: dns_sd.h + AWDL
-│   │   ├── MdnsDiscovery.cpp      # Windows/Linux/Android: raw mDNS (cross-platform)
+│   │   ├── BonjourDiscovery.cpp   # Apple only: dns_sd.h + AWDL (Apple-pair, later)
+│   │   ├── MdnsDiscovery.cpp      # Linux/Android: raw mDNS (dev fallback)
+│   │   ├── BleDiscovery_Windows.cpp  # Phase 1 Windows side: WinRT BLE advertise + scan
 │   │   ├── TcpTransport.cpp
 │   │   ├── TransferProtocol.cpp
 │   │   └── bettersend_api.cpp     # extern "C" Facade for Flutter FFI

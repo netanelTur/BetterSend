@@ -342,7 +342,8 @@
     <div class="section-label">מימושים</div>
     <a href="#filetransferable">FileTransferable.h <span class="tag tag-cpp">C++</span></a>
     <a href="#texttransferable">TextTransferable.h <span class="tag tag-cpp">C++</span></a>
-    <a href="#mdnsdiscovery">BonjourDiscovery.cpp (Apple) / MdnsDiscovery.cpp (Windows) <span class="tag tag-cpp">C++</span></a>
+    <a href="#mdnsdiscovery">BonjourDiscovery.cpp (Apple) / MdnsDiscovery.cpp (Linux) <span class="tag tag-cpp">C++</span></a>
+    <a href="#blediscovery">BleDiscovery_Windows.cpp <span class="tag tag-cpp">C++</span></a>
     <a href="#tcptransport">TcpTransport.cpp <span class="tag tag-cpp">C++</span></a>
     <a href="#transferprotocol">TransferProtocol.cpp <span class="tag tag-cpp">C++</span></a>
   </div>
@@ -935,6 +936,84 @@
       <div class="code-cell"><span class="kw">inline constexpr uint32_t</span> kReceiveBufferSize  = <span class="nm">65536</span>;</div>
       <div class="anno-cell">64KB — גודל buffer לקריאה ברשת. קורא עד 64KB בכל "סיבוב" של recv.</div>
     </div>
+    <div class="code-row highlight">
+      <div class="code-cell"><span class="kw">inline constexpr char</span>     kBleServiceUuid[]   = <span class="st">"5BE77ECD-A1B2-4F1A-8C5D-7F8E9D2C4A6B"</span>;
+<span class="kw">inline constexpr uint16_t</span> kBleCompanyId       = <span class="nm">0xFFFF</span>;
+<span class="kw">inline constexpr uint8_t</span>  kBleMagicBytes[]    = {<span class="nm">0xBE</span>, <span class="nm">0x77</span>, <span class="nm">0xEC</span>, <span class="nm">0xD0</span>};
+<span class="kw">inline constexpr int</span>      kBleMaxNameLen      = <span class="nm">20</span>;</div>
+      <div class="anno-cell key">
+        <div>
+          <strong>kBleServiceUuid</strong>: GATT service UUID לשלב ה-handshake (read SSID+PSK אחרי שהצד השני נמצא). לא נכנס לתוך ה-advertise כי 128-bit לבד תופס 18 בייטים — לא משאיר מקום לשם בתוך 31 הבייטים הלגאסי.<br>
+          <strong>kBleCompanyId 0xFFFF</strong>: Bluetooth SIG שמור ל-development. כל BetterSend peer מציין שהוא BetterSend ע"י advertising של ManufacturerData עם ה-company ID הזה.<br>
+          <strong>kBleMagicBytes</strong>: 4 בייטים אחרי ה-company ID — מסנן false-positives של אפליקציות אחרות שגם משתמשות ב-0xFFFF. ה-watcher מסנן ב-hardware על company + magic ביחד.<br>
+          <strong>kBleMaxNameLen 20</strong>: גודל מקסימלי לשם מכשיר בתוך ה-advertise (3 AD Flags + 8 ManufacturerData overhead + magic = 15 כבר תפוסים, 31-15 = 16 לשם; שמרנו 20 לבטיחות עם חיתוך).
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- ════════════════════════════════════════════════════════ -->
+<div class="file-section" id="blediscovery">
+  <div class="file-header">
+    <h2>BleDiscovery.h + BleDiscovery_Windows.cpp</h2>
+    <span class="badge badge-cpp">C++</span>
+    <span class="badge" style="background:#fde68a;color:#92400e;">Phase 1</span>
+  </div>
+  <div class="file-desc">
+    Discovery של עמיתי BetterSend דרך Bluetooth Low Energy — ללא רשת משותפת, כמו שלב ה-discovery של AirDrop.
+    ה-<code>BleDiscovery.h</code> מכריז על factory יחיד (<code>makeBleDiscovery()</code>); כל פלטפורמה מספקת קובץ <code>.cpp</code>/<code>.mm</code> משלה מאחורי הממשק.
+    <code>BleDiscovery_Windows.cpp</code> מממש את צד ה-Windows עם C++/WinRT (<code>BluetoothLEAdvertisementPublisher</code> + <code>BluetoothLEAdvertisementWatcher</code>).
+  </div>
+
+  <div class="annotated">
+    <div class="code-row highlight">
+      <div class="code-cell"><span class="ty">winrt_btle::BluetoothLEManufacturerData</span> mfg;
+mfg.<span class="fn">CompanyId</span>(kBleCompanyId);
+mfg.<span class="fn">Data</span>(<span class="fn">makeBetterSendPayload</span>(deviceName));
+adv.<span class="fn">ManufacturerData</span>().<span class="fn">Append</span>(mfg);
+publisher_.<span class="fn">Start</span>();</div>
+      <div class="anno-cell key">
+        <div>
+          <strong>למה ManufacturerData ולא LocalName + ServiceUuid?</strong> הניסיון הראשון היה לשים את ה-Service UUID במכריז ולשם את ה-LocalName — נתן HRESULT <code>0x80070057</code> "The parameter is incorrect". הסיבה: AD Flags 3B + Service UUID 128-bit 18B + LocalName 10B = 33B, יותר מ-31 הבייטים של legacy advertisement. ב-ManufacturerData הסטטיק הוא 8B + 4B magic = 12B, ונשארים 19B לשם.
+        </div>
+      </div>
+    </div>
+    <div class="code-row highlight">
+      <div class="code-cell">watcher_.<span class="fn">AdvertisementFilter</span>().<span class="fn">Advertisement</span>()
+        .<span class="fn">ManufacturerData</span>().<span class="fn">Append</span>(filterMfg);</div>
+      <div class="anno-cell key">
+        <div>
+          <strong>Hardware-level filter</strong>: ה-watcher מקבל callback רק על packets שעוברים את הסינון של ה-Bluetooth controller. מסנן אצלנו על company ID + magic prefix — אוזניות BLE, beacons, ושאר רעש שאינו BetterSend נחסם לפני שמגיע ל-app. חיסכון משמעותי ב-callbacks ובCPU.
+        </div>
+      </div>
+    </div>
+    <div class="code-row">
+      <div class="code-cell"><span class="kw">std::lock_guard</span> lock(seenMu_);
+<span class="kw">if</span> (!seen_.<span class="fn">insert</span>(addr).second) <span class="kw">return</span>;</div>
+      <div class="anno-cell info">
+        Dedupe לפי BluetoothAddress. BLE advertising מתחדש כל ~100ms, ובלי dedupe ה-UI היה מקבל את אותו עמית עשרות פעמים בשנייה.
+      </div>
+    </div>
+    <div class="code-row">
+      <div class="code-cell"><span class="fn">onFound_</span>(<span class="ty">Device</span>{name, <span class="kw">std::string</span>(<span class="st">"ble:"</span>) + addrStr, kDefaultPort});</div>
+      <div class="anno-cell info">
+        ה-<code>ip</code> נושא <code>"ble:&lt;addr&gt;"</code> זמנית — סמן ש-discovery זוהה אבל transport עוד לא קיים. בשלב הבא (<code>IConnectionBroker</code>), Windows מעלה Mobile Hotspot, Mac מתחבר אליו, וה-<code>ip</code> יוחלף לכתובת IPv4 אמיתית.
+      </div>
+    </div>
+    <div class="code-row highlight">
+      <div class="code-cell"><span class="cm">// CMakeLists.txt</span>
+target_link_libraries(bettersend_core <span class="kw">PRIVATE</span>
+    ws2_32 mswsock iphlpapi
+    runtimeobject ole32 oleaut32)</div>
+      <div class="anno-cell key">
+        <div>
+          MinGW לא נושא את ה-cppwinrt headers (הם ב-Windows SDK תחת <code>Program Files (x86)/Windows Kits/10/...</code>). ה-CMake מאתר את הגרסה הכי חדשה ב-build time. ה-link דורש <code>runtimeobject</code> (WinRT activation), <code>ole32</code> (COM), <code>oleaut32</code> (BSTR / IErrorInfo). בלעדיהם — undefined references ב-link time.
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -1160,15 +1239,17 @@
   <div class="annotated">
     <div class="code-row highlight">
       <div class="code-cell"><span class="kw">void</span> <span class="fn">main</span>() {
-  <span class="kw">const</span> <span class="ty">String</span> deviceName = <span class="st">'MyDevice'</span>;
+  <span class="ty">String</span> deviceName;
+  <span class="kw">try</span> { deviceName = <span class="ty">Platform</span>.localHostname; }
+  <span class="kw">catch</span> (_) { deviceName = <span class="st">'BetterSend'</span>; }
   <span class="kw">final</span> bridge = <span class="ty">BetterSendBridge</span>(deviceName);
   <span class="fn">runApp</span>(<span class="ty">BetterSendApp</span>(bridge: bridge));
 }</div>
       <div class="anno-cell key">
         <div>
           נקודת הכניסה לכל אפליקציית Flutter.<br>
-          <code>const</code>: קבוע זמן-קומפילציה (לא ניתן לשינוי).<br>
-          <code>final</code>: reference לא ניתנת לשינוי (אבל האובייקט עצמו יכול להשתנות).<br>
+          <strong>Platform.localHostname</strong>: שם המכונה של ה-OS — ייחודי בין מכשירים שונים. ערך קודם <code>'MyDevice'</code> היה קשיח, כך ששני אנשים שהריצו את האפליקציה שידרו את אותו השם והייתה התנגשות ב-discovery.<br>
+          ב-Phase מאוחר יותר נחליף ל-<code>device_info_plus</code> ל-mobile, ולהגדרה ע"י המשתמש דרך UI.<br>
           <code>runApp</code>: מפעיל את Flutter engine עם ה-widget הראשי.
         </div>
       </div>
