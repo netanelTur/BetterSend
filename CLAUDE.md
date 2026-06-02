@@ -30,36 +30,44 @@ No internet. No shared WiFi. No account. Just the app on both sides.
 
 | Phase | Goal | Milestone |
 |-------|------|-----------|
-| **1 — Now** | File transfer iOS ↔ Android, no internet | 10 MB photo sent successfully |
-| **2** | Clipboard (copied text) transfer | Paste on other device |
-| **3** | All OS: Windows + Mac + iOS + Android (full matrix) | All pairs work |
+| **1 — Now** | File transfer Mac ↔ Windows, **no internet, no shared WiFi** | 10 MB photo sent successfully |
+| **2** | iOS ↔ Android file transfer (same BLE → hotspot pattern) | 10 MB photo sent successfully |
+| **3** | Clipboard (copied text) transfer across already-supported pairs | Paste on other device |
+| **4** | Full OS matrix — every pair, every direction | All pairs work |
 | **Nice-to-have** | Cloud room: shared workspace via code, works across distance | Remote devices connect |
+
+> **Why Mac↔Windows first:** It's the dev pair (user on Windows, partner on Mac), so dogfooding is constant. The discovery + transport-bring-up pattern is identical to every other no-shared-network pair, so getting it right here unlocks all the others through the Strategy interfaces.
 
 ### Transport strategy (per device pair)
 
-Each pair uses the best available P2P technology — **no shared WiFi router required**:
+Each pair uses the best available P2P technology — **no shared WiFi router required, no user network setup**:
 
-| Pair | Discovery | Transport |
-|------|-----------|-----------|
-| iOS ↔ iOS / Mac ↔ Mac / iOS ↔ Mac | Bonjour + AWDL (`dns_sd.h`) | TCP over AWDL |
-| Android ↔ Android | mDNS (mdns.h) + Wi-Fi Direct | TCP over Wi-Fi Direct |
-| iOS ↔ Android | BLE discovery → one device creates hotspot → other connects | TCP over hotspot |
-| Any ↔ Windows | mDNS + Wi-Fi Direct (Windows 10+) | TCP |
-| Remote (nice-to-have) | Cloud signaling with shared code | WebRTC or relay |
+| Pair | Discovery | Transport bring-up | Transport |
+|------|-----------|-------------------|-----------|
+| **Mac ↔ Windows (Phase 1)** | **BLE** advertise + scan, BetterSend service UUID | Windows side starts Mobile Hotspot programmatically (WinRT `NetworkOperatorTetheringManager`); Mac auto-joins using SSID+PSK exchanged over BLE GATT | TCP over the hotspot |
+| iOS ↔ iOS / Mac ↔ Mac / iOS ↔ Mac | Bonjour + AWDL (`dns_sd.h`) | — (AWDL is always-on) | TCP over AWDL |
+| Android ↔ Android | mDNS + Wi-Fi Direct | WifiP2pManager group | TCP over Wi-Fi Direct |
+| iOS ↔ Android (Phase 2) | BLE | one side creates hotspot, other connects | TCP over hotspot |
+| Any ↔ Windows | BLE + hotspot (same as Mac↔Windows) | same | TCP |
+| Remote (nice-to-have) | Cloud signaling with shared code | — | WebRTC or relay |
 
-`IDiscovery` and `ITransport` Strategy interfaces absorb all of this — new pairs never touch existing code.
+`IDiscovery`, `ITransport`, and a new `IConnectionBroker` (handles hotspot/Wi-Fi Direct bring-up) Strategy interfaces absorb all of this — new pairs never touch existing code. The same BLE-discovery + hotspot-bring-up pattern repeats for every no-shared-network pair; only the platform glue differs.
 
 ```
 Flutter UI  (Dart)
      │  dart:ffi → bettersend_api.cpp (extern "C" Facade)
      ▼
 bettersend_core.so/.dylib/.dll   (namespace BetterSend)
-     ├── Logger        Singleton — BS_LOG_* macros only
-     ├── IDiscovery    ← BonjourDiscovery (Apple) | MdnsDiscovery (other) | BleDiscovery (future)
-     ├── ITransport    ← TcpTransport    port: kDefaultPort (9000)
-     ├── IProtocol     ← TransferProtocol  wire: [4B big-endian len][JSON header][payload]
-     ├── ITransferable ← FileTransferable, TextTransferable
-     └── IClipboard    ← platform impls (Phase 2)
+     ├── Logger              Singleton — BS_LOG_* macros only
+     ├── IDiscovery          ← BleDiscovery (Phase 1, cross-platform via SimpleBLE)
+     │                         BonjourDiscovery (Apple-pair, later)
+     │                         MdnsDiscovery (legacy/over-existing-Wi-Fi, dev fallback)
+     ├── IConnectionBroker   ← WindowsHotspotBroker, MacWifiClientBroker
+     │                         (brings up the actual network the transport runs on)
+     ├── ITransport          ← TcpTransport    port: kDefaultPort (9000)
+     ├── IProtocol           ← TransferProtocol  wire: [4B big-endian len][JSON header][payload]
+     ├── ITransferable       ← FileTransferable, TextTransferable
+     └── IClipboard          ← platform impls (Phase 3)
 ```
 
 ## Coding conventions
@@ -135,12 +143,22 @@ cmake -B build -DBUILD_TESTS=ON && cmake --build build && cd build && ctest --ve
 
 ## Phase discipline
 
-**Currently: Phase 1** — file transfer iOS ↔ Android, no internet dependency.  
-Milestone: 10 MB photo iPhone → Android, peer-to-peer, zero shared infrastructure.
+**Currently: Phase 1** — file transfer Mac ↔ Windows, **no internet, no shared WiFi, no user network setup**.  
+Milestone: 10 MB photo Windows → Mac, peer-to-peer, zero shared infrastructure.
 
-Don't implement Phase 2 (clipboard) or Phase 3 (all OS) until Phase 1 milestone passes.  
-`IClipboard` stubs are fine to keep; full platform impls wait.
+Don't implement Phase 2 (iOS↔Android), Phase 3 (clipboard), or Phase 4 (full matrix) until Phase 1 milestone passes.  
+`IClipboard` stubs and other-pair stubs are fine to keep; full impls wait.
 
-**iOS ↔ Android P2P path (Phase 1 core challenge):**  
-BLE for discovery → one side creates WiFi hotspot → other connects → TCP transfer over hotspot.  
-Strategy pattern means this is a new `IDiscovery` + `ITransport` impl, nothing else changes.
+**Mac ↔ Windows P2P path (Phase 1 core challenge):**  
+1. **BLE discovery** — both apps advertise BetterSend service UUID + device name; both scan for the same UUID. Cross-platform via SimpleBLE in C++ core. Single `BleDiscovery` impl covers both sides.
+2. **BLE GATT handshake** — once peers see each other, the device that will act as host (deterministic tie-break, e.g., MAC ordering) writes SSID + PSK + listen port into a GATT characteristic the other reads.
+3. **Connection bring-up** — Windows host calls `WindowsHotspotBroker::start()` (WinRT `NetworkOperatorTetheringManager`); Mac client calls `MacWifiClientBroker::joinSsid(...)` (CoreWLAN `associateToNetwork`). macOS programmatic hotspot is restricted, so first version always picks Windows as host when one is present; Mac-as-host comes later.
+4. **TCP transfer** — `TcpTransport` runs on the hotspot's local subnet exactly as today. The transfer code stays unchanged.
+
+Strategy pattern means the only new C++ code is `BleDiscovery` + two `IConnectionBroker` impls — nothing else changes. **The same pattern repeats** for iOS↔Android and Any↔Windows pairs in later phases.
+
+**Future-platform safety check (must hold before merging Phase 1 code):**
+- Nothing Mac/Windows-specific leaks into shared headers (`IDiscovery.h`, `IConnectionBroker.h`, `ITransport.h`, `bettersend_api.cpp` C surface). Platform code lives only in its own `.cpp` files behind the interface.
+- `BleDiscovery` uses a generic library (SimpleBLE or equivalent) that already supports Android/iOS — no rewrite needed when those land.
+- `IConnectionBroker` is an interface, not a class hierarchy — easy to add `AndroidWifiDirectBroker`, `IosHotspotBroker`, etc. without touching existing impls.
+- Wire format and protocol stay unchanged across all phases.

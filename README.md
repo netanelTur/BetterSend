@@ -16,19 +16,22 @@ AirDrop is great — but Apple only. BetterSend does the same thing across every
 
 | From \ To | iPhone | Android | Mac | Windows |
 |-----------|--------|---------|-----|---------|
-| **iPhone** | ✅ AWDL | 🚧 Phase 1 | ✅ AWDL | 🔜 Phase 3 |
-| **Android** | 🚧 Phase 1 | ✅ Wi-Fi Direct | 🔜 Phase 3 | 🔜 Phase 3 |
-| **Mac** | ✅ AWDL | 🔜 Phase 3 | ✅ AWDL | 🔜 Phase 3 |
-| **Windows** | 🔜 Phase 3 | 🔜 Phase 3 | 🔜 Phase 3 | 🔜 Phase 3 |
+| **iPhone** | ✅ AWDL | 🔜 Phase 2 | ✅ AWDL | 🔜 Phase 4 |
+| **Android** | 🔜 Phase 2 | ✅ Wi-Fi Direct | 🔜 Phase 4 | 🔜 Phase 4 |
+| **Mac** | ✅ AWDL | 🔜 Phase 4 | ✅ AWDL | 🚧 **Phase 1** |
+| **Windows** | 🔜 Phase 4 | 🔜 Phase 4 | 🚧 **Phase 1** | 🔜 Phase 4 |
 
 ## Roadmap
 
 | Phase | Goal | Status |
 |-------|------|--------|
-| **1** | File transfer iOS ↔ Android, no internet | 🚧 Active |
-| **2** | Clipboard (copied text) transfer | ⏳ Queued |
-| **3** | Full OS matrix — Windows, Mac, iOS, Android | ⏳ Queued |
+| **1** | File transfer **Mac ↔ Windows**, no internet, no shared WiFi | 🚧 Active |
+| **2** | iOS ↔ Android (same BLE → hotspot pattern) | ⏳ Queued |
+| **3** | Clipboard (copied text) transfer | ⏳ Queued |
+| **4** | Full OS matrix — every pair, every direction | ⏳ Queued |
 | **+** | Cloud room: shared workspace via code, works across distance | 💡 Nice-to-have |
+
+> **Why Mac↔Windows first:** it's the dev pair — daily dogfooding. The BLE-discovery + hotspot-bring-up pattern is identical for every no-shared-network pair, so getting it right here unlocks all the rest through the existing Strategy interfaces.
 
 ## Architecture
 
@@ -37,25 +40,32 @@ Flutter UI  (Dart)
      │  dart:ffi → bettersend_api.cpp (extern "C" Facade)
      ▼
 bettersend_core.so/.dylib/.dll   (C++20, namespace BetterSend)
-     ├── IDiscovery    ← BonjourDiscovery (Apple/AWDL) | MdnsDiscovery (other) | BleDiscovery (future)
-     ├── ITransport    ← TcpTransport
-     ├── IProtocol     ← TransferProtocol   [4B len][JSON header][payload]
-     ├── ITransferable ← FileTransferable, TextTransferable
-     ├── IClipboard    ← platform impls (Phase 2)
-     └── Logger        Singleton
+     ├── IDiscovery          ← BleDiscovery (Phase 1, cross-platform via SimpleBLE)
+     │                         BonjourDiscovery (Apple-pair, later phase)
+     │                         MdnsDiscovery (legacy / dev fallback over existing Wi-Fi)
+     ├── IConnectionBroker   ← WindowsHotspotBroker, MacWifiClientBroker
+     │                         (brings up the local network the transport runs on)
+     ├── ITransport          ← TcpTransport
+     ├── IProtocol           ← TransferProtocol   [4B len][JSON header][payload]
+     ├── ITransferable       ← FileTransferable, TextTransferable
+     ├── IClipboard          ← platform impls (Phase 3)
+     └── Logger              Singleton
 ```
 
-Each device pair uses the best available P2P technology via the **Strategy pattern** — new platform support = new `IDiscovery`/`ITransport` implementation, zero changes to existing code.
+Each device pair uses the best available P2P technology via the **Strategy pattern** — new platform support = new `IDiscovery` / `IConnectionBroker` / `ITransport` implementation, zero changes to existing code.
 
 ## Transport strategy per pair
 
-| Pair | Discovery | Transport |
-|------|-----------|-----------|
-| Apple ↔ Apple | Bonjour + AWDL (`kDNSServiceFlagsIncludeAWDL`) | TCP over AWDL |
-| Android ↔ Android | mDNS | TCP over Wi-Fi Direct |
-| iOS ↔ Android | BLE → hotspot handshake | TCP over hotspot |
-| Any ↔ Windows | mDNS + Wi-Fi Direct | TCP |
-| Remote (future) | Cloud signaling + shared code | WebRTC relay |
+The same **BLE-discover → bring-up-network → TCP-transfer** pattern repeats for every no-shared-infrastructure pair; only the platform glue differs.
+
+| Pair | Discovery | Bring-up | Transport |
+|------|-----------|----------|-----------|
+| **Mac ↔ Windows (Phase 1)** | BLE (SimpleBLE) | Windows starts Mobile Hotspot via WinRT; Mac auto-joins via CoreWLAN | TCP over hotspot |
+| Apple ↔ Apple | Bonjour + AWDL | — (AWDL always-on) | TCP over AWDL |
+| Android ↔ Android | mDNS + Wi-Fi Direct | WifiP2pManager | TCP over Wi-Fi Direct |
+| iOS ↔ Android (Phase 2) | BLE | one side creates hotspot, other connects | TCP over hotspot |
+| Any ↔ Windows | BLE + hotspot | same as Mac↔Windows | TCP |
+| Remote (future) | Cloud signaling + shared code | — | WebRTC relay |
 
 ## Build
 
@@ -73,17 +83,17 @@ The Xcode build phase automatically copies `build/cpp_core/libbettersend_core.dy
 
 ### Windows
 ```bash
-# 1. Build native library (from project root, x64 Release)
-cmake -B build -G "Visual Studio 17 2022" -A x64
-cmake --build build --config Release
+# 1. Build native library (from project root) — uses mingw64 + Ninja
+cmake -B build -G Ninja
+cmake --build build
 
 # 2. Run Flutter app
 cd flutter_app
 flutter run -d windows
 ```
-The Windows CMake runner automatically copies `build/cpp_core/Release/bettersend_core.dll` into the build output.
+**One-time:** after the first `flutter run`, copy `bettersend_core.dll` plus the three MinGW runtime DLLs (`libgcc_s_seh-1.dll`, `libstdc++-6.dll`, `libwinpthread-1.dll`) into `flutter_app/build/windows/x64/runner/Debug/`. TODO: a post-build CMake step to automate this, matching the Xcode build phase on macOS.
 
-> **Both computers need to be on the same LAN for discovery to work (Mac ↔ Windows via mDNS).**
+> **Phase 1 transport (BLE → Mobile Hotspot) is not yet implemented.** The current build uses `MdnsDiscovery` as a dev fallback, which only works when both machines are on the same Wi-Fi. The real no-shared-network path lands with `BleDiscovery` + `IConnectionBroker`.
 
 ## Project structure
 
