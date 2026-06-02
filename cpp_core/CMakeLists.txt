@@ -30,11 +30,18 @@ FetchContent_MakeAvailable(nlohmann_json)
 
 # ── bettersend_core shared library ────────────────────────────────────────────
 add_library(bettersend_core SHARED
-    src/MdnsDiscovery.cpp
     src/TcpTransport.cpp
     src/TransferProtocol.cpp
     src/bettersend_api.cpp
 )
+
+# Apple: use Bonjour (dns_sd.h) — goes through mDNSResponder, sandbox-compatible
+# Other: use raw mDNS via mdns.h
+if(APPLE)
+    target_sources(bettersend_core PRIVATE src/BonjourDiscovery.cpp)
+else()
+    target_sources(bettersend_core PRIVATE src/MdnsDiscovery.cpp)
+endif()
 
 target_include_directories(bettersend_core
     PUBLIC
@@ -57,5 +64,5 @@ if(APPLE)
 elseif(ANDROID)
     target_link_libraries(bettersend_core PRIVATE log)
 elseif(WIN32)
-    target_link_libraries(bettersend_core PRIVATE ws2_32 mswsock)
+    target_link_libraries(bettersend_core PRIVATE ws2_32 mswsock iphlpapi)
 endif()

@@ -1,23 +1,7 @@
 import 'package:flutter/material.dart';
 import '../ffi_bridge.dart';
 import 'device_list_screen.dart';
-
-// ── HomeScreen ────────────────────────────────────────────────────────────────
-// Main screen: nearby devices, recent transfers, send FAB.
-//
-// Design prompt (when building full UI):
-//   "Design the HomeScreen for BetterSend, a cross-platform AirDrop alternative.
-//    Style: clean, modern, iOS-inspired but works on Android too.
-//    Layout:
-//      - AppBar: app name left, settings gear icon right
-//      - 'Nearby Devices' section: horizontal scroll row of device cards
-//        Each card: device icon (phone/laptop), device name, subtle ping animation
-//        when scanning. Tap → navigates to DeviceListScreen.
-//      - 'Recent Transfers' section: vertical list, each item shows
-//        file icon, filename/Clipboard, sender name, time ago, file size.
-//      - FAB: circular, send icon, bottom-right. Tap → file picker then DeviceListScreen.
-//    Empty states: 'Scanning for devices...' with animated radar wave SVG.
-//    Color scheme: blue-to-indigo gradient accent, white cards, dark text."
+import 'transfer_screen.dart';
 
 class HomeScreen extends StatefulWidget {
 	final BetterSendBridge bridge;
@@ -39,16 +23,12 @@ class _HomeScreenState extends State<HomeScreen> {
 	}
 
 	void _initBridge() {
-		// TODO: wire up bridge callbacks
-		// widget.bridge.startServer(9000, onReceive: (t) {
-		//   setState(() => _received.insert(0, t));
-		// });
-		// widget.bridge.startAdvertising(9000);
-		// widget.bridge.startDiscovery(onFound: (d) {
-		//   setState(() {
-		//     if (!_devices.any((e) => e.ip == d.ip)) _devices.add(d);
-		//   });
-		// });
+		widget.bridge.startAdvertising(9000);
+		widget.bridge.startDiscovery(onFound: (d) {
+			setState(() {
+				if (!_devices.any((e) => e.ip == d.ip)) _devices.add(d);
+			});
+		});
 	}
 
 	@override
@@ -58,8 +38,7 @@ class _HomeScreenState extends State<HomeScreen> {
 	}
 
 	void _runEcho() {
-		final result = widget.bridge.echo('Hello World');
-		setState(() => _echoResult = result);
+		setState(() => _echoResult = widget.bridge.echo('Hello World'));
 	}
 
 	@override
@@ -70,7 +49,7 @@ class _HomeScreenState extends State<HomeScreen> {
 				actions: [
 					IconButton(
 						icon: const Icon(Icons.settings),
-						onPressed: () {/* TODO: settings screen */},
+						onPressed: () {},
 					),
 				],
 			),
@@ -79,17 +58,15 @@ class _HomeScreenState extends State<HomeScreen> {
 				child: Column(
 					crossAxisAlignment: CrossAxisAlignment.stretch,
 					children: [
-						// ── Hello World: FFI pipeline smoke test ──────────────────
+						// ── FFI smoke test ─────────────────────────────────────────
 						Card(
 							child: Padding(
 								padding: const EdgeInsets.all(16.0),
 								child: Column(
 									crossAxisAlignment: CrossAxisAlignment.start,
 									children: [
-										const Text(
-											'FFI Pipeline Test',
-											style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-										),
+										const Text('FFI Pipeline Test',
+											style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
 										const SizedBox(height: 8),
 										ElevatedButton(
 											onPressed: _runEcho,
@@ -113,34 +90,74 @@ class _HomeScreenState extends State<HomeScreen> {
 						),
 						const SizedBox(height: 24),
 
-						// TODO: NearbyDevicesSection(devices: _devices)
-						// TODO: RecentTransfersSection(transfers: _received)
-						const Expanded(
-							child: Center(
-								child: Text(
-									'Scanning for devices...',
-									style: TextStyle(color: Colors.grey),
+						// ── Nearby devices ─────────────────────────────────────────
+						Row(
+							children: [
+								const Text('Nearby Devices',
+									style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+								const Spacer(),
+								if (_devices.isEmpty)
+									const SizedBox(
+										width: 16, height: 16,
+										child: CircularProgressIndicator(strokeWidth: 2),
+									),
+							],
+						),
+						const SizedBox(height: 8),
+
+						Expanded(
+							child: _devices.isEmpty
+								? const Center(
+									child: Text('Scanning for devices...',
+										style: TextStyle(color: Colors.grey)),
+								)
+								: ListView.builder(
+									itemCount: _devices.length,
+									itemBuilder: (_, i) => _DeviceCard(
+										device: _devices[i],
+										onSend: () => _sendToDevice(_devices[i]),
+									),
 								),
-							),
 						),
 					],
 				),
 			),
 			floatingActionButton: FloatingActionButton(
-				onPressed: _onSendTap,
+				onPressed: () => Navigator.push(context, MaterialPageRoute(
+					builder: (_) => DeviceListScreen(devices: _devices, bridge: widget.bridge),
+				)),
 				child: const Icon(Icons.send),
 			),
 		);
 	}
 
-	void _onSendTap() {
-		// TODO: open file picker, then navigate to DeviceListScreen with filePath
-		Navigator.push(
-			context,
-			MaterialPageRoute(
-				builder: (_) => DeviceListScreen(
-					devices: _devices,
-					bridge: widget.bridge,
+	void _sendToDevice(DiscoveredDevice d) {
+		Navigator.push(context, MaterialPageRoute(
+			builder: (_) => TransferScreen(device: d),
+		));
+	}
+}
+
+// ── Device card ───────────────────────────────────────────────────────────────
+
+class _DeviceCard extends StatelessWidget {
+	final DiscoveredDevice device;
+	final VoidCallback onSend;
+	const _DeviceCard({required this.device, required this.onSend});
+
+	@override
+	Widget build(BuildContext context) {
+		return Card(
+			child: ListTile(
+				leading: const Icon(Icons.phone_android, size: 36),
+				title: Text(device.name,
+					style: const TextStyle(fontWeight: FontWeight.bold)),
+				subtitle: Text('${device.ip}:${device.port}',
+					style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
+				trailing: IconButton(
+					icon: const Icon(Icons.send),
+					tooltip: 'Send to ${device.name}',
+					onPressed: onSend,
 				),
 			),
 		);

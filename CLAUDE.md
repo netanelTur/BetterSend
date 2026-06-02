@@ -6,9 +6,48 @@ This project uses OpenWolf for context management. Read and follow .wolf/OPENWOL
 
 ---
 
-# BetterSend — Project Rules & Guidelines
+# BetterSend 🛰️☄️🚀👾👽
 
-Cross-platform AirDrop alternative. C++20 shared library (`bettersend_core`) + Flutter thin UI via `dart:ffi`. Local Wi-Fi only.
+## Vision
+
+**AirDrop — upgraded. Cross-platform.**
+
+Transfer files and clipboard between any two devices that have BetterSend installed.
+No internet. No shared WiFi. No account. Just the app on both sides.
+
+### Target device pairs (all combinations):
+- iPhone ↔ Android
+- iPhone ↔ Mac
+- iPhone ↔ Windows PC
+- Android ↔ Mac
+- Android ↔ Windows PC
+- Mac ↔ Windows PC
+- + any future platform
+
+**The only dependency: both devices run BetterSend.**
+
+### Roadmap
+
+| Phase | Goal | Milestone |
+|-------|------|-----------|
+| **1 — Now** | File transfer iOS ↔ Android, no internet | 10 MB photo sent successfully |
+| **2** | Clipboard (copied text) transfer | Paste on other device |
+| **3** | All OS: Windows + Mac + iOS + Android (full matrix) | All pairs work |
+| **Nice-to-have** | Cloud room: shared workspace via code, works across distance | Remote devices connect |
+
+### Transport strategy (per device pair)
+
+Each pair uses the best available P2P technology — **no shared WiFi router required**:
+
+| Pair | Discovery | Transport |
+|------|-----------|-----------|
+| iOS ↔ iOS / Mac ↔ Mac / iOS ↔ Mac | Bonjour + AWDL (`dns_sd.h`) | TCP over AWDL |
+| Android ↔ Android | mDNS (mdns.h) + Wi-Fi Direct | TCP over Wi-Fi Direct |
+| iOS ↔ Android | BLE discovery → one device creates hotspot → other connects | TCP over hotspot |
+| Any ↔ Windows | mDNS + Wi-Fi Direct (Windows 10+) | TCP |
+| Remote (nice-to-have) | Cloud signaling with shared code | WebRTC or relay |
+
+`IDiscovery` and `ITransport` Strategy interfaces absorb all of this — new pairs never touch existing code.
 
 ```
 Flutter UI  (Dart)
@@ -16,11 +55,11 @@ Flutter UI  (Dart)
      ▼
 bettersend_core.so/.dylib/.dll   (namespace BetterSend)
      ├── Logger        Singleton — BS_LOG_* macros only
-     ├── IDiscovery    ← MdnsDiscovery   service: _bettersend._tcp.local.
+     ├── IDiscovery    ← BonjourDiscovery (Apple) | MdnsDiscovery (other) | BleDiscovery (future)
      ├── ITransport    ← TcpTransport    port: kDefaultPort (9000)
      ├── IProtocol     ← TransferProtocol  wire: [4B big-endian len][JSON header][payload]
      ├── ITransferable ← FileTransferable, TextTransferable
-     └── IClipboard    ← platform impls (Phase 2 only)
+     └── IClipboard    ← platform impls (Phase 2)
 ```
 
 ## Coding conventions
@@ -64,6 +103,26 @@ bettersend_core.so/.dylib/.dll   (namespace BetterSend)
 
 **Comments:** English only. No Hebrew in committed code.
 
+**No mock mode:** Never add fake/stub data to the UI (mock devices, simulated discovery, placeholder transfers). If the native library isn't built, the app should fail loudly — not silently show fake results. Real network behavior only.
+
+**Build the library first:** `cmake -B build && cmake --build build` from project root. The Xcode build phase copies `build/cpp_core/libbettersend_core.dylib` into the app bundle automatically. Nathaniel must also run cmake after cloning.
+
+## Code documentation
+
+`docs/codebase-explained.html` — הסבר שורה-שורה של כל הקוד בפרויקט. **חובה לעדכן מיד בסוף כל שינוי — לא בסוף המשימה, אחרי כל קובץ שנשתנה.**
+
+`README.md` — project overview, roadmap, architecture, build instructions. **עדכן במקביל ל-HTML** כשמשתנה: ארכיטקטורה, phases, קבצים חדשים, הנחיות build.
+
+כשמעדכנים HTML:
+- הוסף section חדש לכל קובץ שנוצר
+- עדכן sections קיימות אם הקוד השתנה
+- עדכן את תאריך העדכון האחרון בpage-header
+
+כשמעדכנים README:
+- עדכן טבלת device pairs אם platform חדש נוסף
+- עדכן project structure אם קבצים נוספו/הוסרו
+- עדכן roadmap status אם phase הושלם
+
 ## Verification
 
 ```bash
@@ -76,6 +135,12 @@ cmake -B build -DBUILD_TESTS=ON && cmake --build build && cd build && ctest --ve
 
 ## Phase discipline
 
-**Currently: Phase 1** — file transfer iOS ↔ Android over Wi-Fi.  
-Don't implement Phase 2 (clipboard) or Phase 3 (desktop/CI) until Phase 1 milestone passes (10 MB photo iPhone → Android).  
+**Currently: Phase 1** — file transfer iOS ↔ Android, no internet dependency.  
+Milestone: 10 MB photo iPhone → Android, peer-to-peer, zero shared infrastructure.
+
+Don't implement Phase 2 (clipboard) or Phase 3 (all OS) until Phase 1 milestone passes.  
 `IClipboard` stubs are fine to keep; full platform impls wait.
+
+**iOS ↔ Android P2P path (Phase 1 core challenge):**  
+BLE for discovery → one side creates WiFi hotspot → other connects → TCP transfer over hotspot.  
+Strategy pattern means this is a new `IDiscovery` + `ITransport` impl, nothing else changes.

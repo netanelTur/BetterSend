@@ -1,251 +1,116 @@
 {
-  "session_id": "session-2026-06-01-1819",
-  "started": "2026-06-01T15:19:52.177Z",
+  "session_id": "session-2026-06-02-1106",
+  "started": "2026-06-02T08:06:02.664Z",
   "files_read": {
-    "/Users/yonatanrotem/Desktop/BetterSend/plan.md": {
+    "/Users/yonatanrotem/Desktop/BetterSend/flutter_app/lib/ffi_bridge.dart": {
       "count": 1,
-      "tokens": 1676,
-      "first_read": "2026-06-01T15:20:36.232Z"
+      "tokens": 1193,
+      "first_read": "2026-06-02T08:06:58.004Z"
     },
-    "/Users/yonatanrotem/Desktop/BetterSend/CMakeLists.txt": {
+    "/Users/yonatanrotem/Desktop/BetterSend/cpp_core/CMakeLists.txt": {
       "count": 1,
       "tokens": 150,
-      "first_read": "2026-06-01T15:20:36.406Z"
+      "first_read": "2026-06-02T08:06:58.118Z"
     },
-    "/Users/yonatanrotem/Desktop/BetterSend/cpp_core/include/ITransferable.h": {
+    "/Users/yonatanrotem/Desktop/BetterSend/cpp_core/src/MdnsDiscovery.cpp": {
       "count": 1,
-      "tokens": 307,
-      "first_read": "2026-06-01T15:20:39.159Z"
-    },
-    "/Users/yonatanrotem/Desktop/BetterSend/cpp_core/include/TextTransferable.h": {
-      "count": 1,
-      "tokens": 244,
-      "first_read": "2026-06-01T15:20:40.131Z"
+      "tokens": 2677,
+      "first_read": "2026-06-02T08:07:27.866Z"
     },
     "/Users/yonatanrotem/Desktop/BetterSend/cpp_core/src/bettersend_api.cpp": {
       "count": 1,
-      "tokens": 2243,
-      "first_read": "2026-06-01T15:20:40.238Z"
+      "tokens": 1439,
+      "first_read": "2026-06-02T08:07:28.133Z"
     },
-    "/Users/yonatanrotem/Desktop/BetterSend/cpp_core/include/IProtocol.h": {
+    "/Users/yonatanrotem/Desktop/BetterSend/flutter_app/windows/CMakeLists.txt": {
       "count": 1,
-      "tokens": 546,
-      "first_read": "2026-06-01T15:20:43.158Z"
+      "tokens": 150,
+      "first_read": "2026-06-02T08:10:26.491Z"
     },
-    "/Users/yonatanrotem/Desktop/BetterSend/cpp_core/include/ITransport.h": {
-      "count": 1,
-      "tokens": 571,
-      "first_read": "2026-06-01T15:20:43.671Z"
-    },
-    "/Users/yonatanrotem/Desktop/BetterSend/cpp_core/include/Logger.h": {
-      "count": 1,
-      "tokens": 1370,
-      "first_read": "2026-06-01T15:20:43.939Z"
-    },
-    "/Users/yonatanrotem/Desktop/BetterSend/CLAUDE.md": {
-      "count": 3,
-      "tokens": 400,
-      "first_read": "2026-06-01T15:20:47.418Z"
-    },
-    "/Users/yonatanrotem/Desktop/BetterSend/flutter_app/lib/ffi_bridge.dart": {
-      "count": 1,
-      "tokens": 1369,
-      "first_read": "2026-06-01T15:20:48.100Z"
-    },
-    "/Users/yonatanrotem/Desktop/BetterSend/cpp_core/include/Constants.h": {
-      "count": 1,
-      "tokens": 326,
-      "first_read": "2026-06-01T15:21:00.813Z"
-    },
-    "/Users/yonatanrotem/Desktop/BetterSend/cpp_core/include/IDiscovery.h": {
-      "count": 1,
-      "tokens": 364,
-      "first_read": "2026-06-01T15:21:01.214Z"
-    },
-    "/Users/yonatanrotem/Desktop/BetterSend/cpp_core/tests/test_transport.cpp": {
-      "count": 1,
-      "tokens": 792,
-      "first_read": "2026-06-01T15:23:38.055Z"
-    },
-    "/Users/yonatanrotem/Desktop/BetterSend/cpp_core/tests/test_discovery.cpp": {
-      "count": 1,
-      "tokens": 776,
-      "first_read": "2026-06-01T15:23:38.216Z"
+    "/Users/yonatanrotem/Desktop/BetterSend/docs/codebase-explained.html": {
+      "count": 5,
+      "tokens": 15454,
+      "first_read": "2026-06-02T08:11:51.303Z"
     }
   },
   "files_written": [
     {
-      "file": "/Users/yonatanrotem/Desktop/BetterSend/cpp_core/include/FileTransferable.h",
-      "action": "create",
-      "tokens": 402,
-      "at": "2026-06-01T15:19:59.402Z"
-    },
-    {
-      "file": "/Users/yonatanrotem/Desktop/BetterSend/flutter_app/lib/screens/splash_screen.dart",
-      "action": "create",
-      "tokens": 475,
-      "at": "2026-06-01T15:20:13.117Z"
-    },
-    {
-      "file": "/Users/yonatanrotem/Desktop/BetterSend/cpp_core/include/Constants.h",
-      "action": "create",
-      "tokens": 349,
-      "at": "2026-06-01T15:20:26.628Z"
-    },
-    {
-      "file": "/Users/yonatanrotem/Desktop/BetterSend/cpp_core/include/Device.h",
-      "action": "create",
-      "tokens": 247,
-      "at": "2026-06-01T15:20:34.947Z"
-    },
-    {
-      "file": "/Users/yonatanrotem/Desktop/BetterSend/cpp_core/include/IClipboard.h",
-      "action": "create",
-      "tokens": 323,
-      "at": "2026-06-01T15:20:47.390Z"
-    },
-    {
-      "file": "/Users/yonatanrotem/Desktop/BetterSend/cpp_core/include/IDiscovery.h",
-      "action": "create",
-      "tokens": 390,
-      "at": "2026-06-01T15:20:57.085Z"
-    },
-    {
-      "file": "/Users/yonatanrotem/Desktop/BetterSend/cpp_core/include/IProtocol.h",
-      "action": "create",
-      "tokens": 532,
-      "at": "2026-06-01T15:21:09.654Z"
-    },
-    {
-      "file": "/Users/yonatanrotem/Desktop/BetterSend/cpp_core/include/ITransport.h",
-      "action": "create",
-      "tokens": 536,
-      "at": "2026-06-01T15:21:21.593Z"
-    },
-    {
-      "file": "/Users/yonatanrotem/Desktop/BetterSend/CLAUDE.md",
+      "file": "/Users/yonatanrotem/Desktop/BetterSend/cpp_core/src/MdnsDiscovery.cpp",
       "action": "edit",
-      "tokens": 1634,
-      "at": "2026-06-01T15:21:37.691Z"
-    },
-    {
-      "file": "/Users/yonatanrotem/Desktop/BetterSend/cpp_core/include/Logger.h",
-      "action": "create",
-      "tokens": 1266,
-      "at": "2026-06-01T15:21:44.270Z"
-    },
-    {
-      "file": "/Users/yonatanrotem/Desktop/BetterSend/cpp_core/src/bettersend_api.cpp",
-      "action": "create",
-      "tokens": 2242,
-      "at": "2026-06-01T15:22:32.877Z"
-    },
-    {
-      "file": "/Users/yonatanrotem/Desktop/BetterSend/CLAUDE.md",
-      "action": "edit",
-      "tokens": 631,
-      "at": "2026-06-01T15:22:46.340Z"
-    },
-    {
-      "file": "/Users/yonatanrotem/Desktop/BetterSend/cpp_core/src/TransferProtocol.cpp",
-      "action": "create",
-      "tokens": 935,
-      "at": "2026-06-01T15:22:55.402Z"
-    },
-    {
-      "file": "/Users/yonatanrotem/Desktop/BetterSend/cpp_core/src/TcpTransport.cpp",
-      "action": "create",
-      "tokens": 742,
-      "at": "2026-06-01T15:23:15.346Z"
+      "tokens": 138,
+      "at": "2026-06-02T08:09:44.765Z"
     },
     {
       "file": "/Users/yonatanrotem/Desktop/BetterSend/cpp_core/src/MdnsDiscovery.cpp",
-      "action": "create",
-      "tokens": 846,
-      "at": "2026-06-01T15:23:33.439Z"
-    },
-    {
-      "file": "/Users/yonatanrotem/Desktop/BetterSend/cpp_core/tests/test_protocol.cpp",
-      "action": "create",
-      "tokens": 802,
-      "at": "2026-06-01T15:23:56.237Z"
-    },
-    {
-      "file": "/Users/yonatanrotem/Desktop/BetterSend/cpp_core/tests/test_transport.cpp",
-      "action": "create",
-      "tokens": 765,
-      "at": "2026-06-01T15:24:15.268Z"
-    },
-    {
-      "file": "/Users/yonatanrotem/Desktop/BetterSend/cpp_core/tests/test_discovery.cpp",
-      "action": "create",
-      "tokens": 753,
-      "at": "2026-06-01T15:24:31.362Z"
-    },
-    {
-      "file": "/Users/yonatanrotem/Desktop/BetterSend/flutter_app/lib/main.dart",
-      "action": "create",
-      "tokens": 366,
-      "at": "2026-06-01T15:24:46.429Z"
-    },
-    {
-      "file": "/Users/yonatanrotem/Desktop/BetterSend/flutter_app/lib/ffi_bridge.dart",
-      "action": "create",
-      "tokens": 1465,
-      "at": "2026-06-01T15:25:14.878Z"
-    },
-    {
-      "file": "/Users/yonatanrotem/Desktop/BetterSend/flutter_app/lib/screens/home_screen.dart",
-      "action": "create",
-      "tokens": 1206,
-      "at": "2026-06-01T15:25:35.843Z"
-    },
-    {
-      "file": "/Users/yonatanrotem/Desktop/BetterSend/flutter_app/lib/screens/device_list_screen.dart",
-      "action": "create",
-      "tokens": 720,
-      "at": "2026-06-01T15:25:48.644Z"
-    },
-    {
-      "file": "/Users/yonatanrotem/Desktop/BetterSend/flutter_app/lib/screens/transfer_screen.dart",
-      "action": "create",
-      "tokens": 824,
-      "at": "2026-06-01T15:26:03.762Z"
-    },
-    {
-      "file": "/Users/yonatanrotem/Desktop/BetterSend/CLAUDE.md",
       "action": "edit",
-      "tokens": 438,
-      "at": "2026-06-01T15:26:40.327Z"
+      "tokens": 66,
+      "at": "2026-06-02T08:09:52.398Z"
+    },
+    {
+      "file": "/Users/yonatanrotem/Desktop/BetterSend/cpp_core/src/MdnsDiscovery.cpp",
+      "action": "edit",
+      "tokens": 392,
+      "at": "2026-06-02T08:10:07.775Z"
+    },
+    {
+      "file": "/Users/yonatanrotem/Desktop/BetterSend/cpp_core/CMakeLists.txt",
+      "action": "edit",
+      "tokens": 26,
+      "at": "2026-06-02T08:10:12.976Z"
+    },
+    {
+      "file": "/Users/yonatanrotem/Desktop/BetterSend/flutter_app/windows/CMakeLists.txt",
+      "action": "edit",
+      "tokens": 220,
+      "at": "2026-06-02T08:10:56.562Z"
+    },
+    {
+      "file": "/Users/yonatanrotem/Desktop/BetterSend/README.md",
+      "action": "edit",
+      "tokens": 234,
+      "at": "2026-06-02T08:11:10.550Z"
+    },
+    {
+      "file": "/Users/yonatanrotem/Desktop/BetterSend/README.md",
+      "action": "edit",
+      "tokens": 350,
+      "at": "2026-06-02T08:11:26.307Z"
+    },
+    {
+      "file": "/Users/yonatanrotem/Desktop/BetterSend/docs/codebase-explained.html",
+      "action": "edit",
+      "tokens": 474,
+      "at": "2026-06-02T08:12:27.592Z"
+    },
+    {
+      "file": "/Users/yonatanrotem/Desktop/BetterSend/docs/codebase-explained.html",
+      "action": "edit",
+      "tokens": 111,
+      "at": "2026-06-02T08:12:42.733Z"
+    },
+    {
+      "file": "/Users/yonatanrotem/Desktop/BetterSend/docs/codebase-explained.html",
+      "action": "edit",
+      "tokens": 34,
+      "at": "2026-06-02T08:13:04.220Z"
+    },
+    {
+      "file": "/Users/yonatanrotem/Desktop/BetterSend/docs/codebase-explained.html",
+      "action": "edit",
+      "tokens": 37,
+      "at": "2026-06-02T08:13:21.316Z"
     }
   ],
   "edit_counts": {
-    "cpp_core/include/FileTransferable.h": 1,
-    "flutter_app/lib/screens/splash_screen.dart": 1,
-    "cpp_core/include/Constants.h": 1,
-    "cpp_core/include/Device.h": 1,
-    "cpp_core/include/IClipboard.h": 1,
-    "cpp_core/include/IDiscovery.h": 1,
-    "cpp_core/include/IProtocol.h": 1,
-    "cpp_core/include/ITransport.h": 1,
-    "CLAUDE.md": 3,
-    "cpp_core/include/Logger.h": 1,
-    "cpp_core/src/bettersend_api.cpp": 1,
-    "cpp_core/src/TransferProtocol.cpp": 1,
-    "cpp_core/src/TcpTransport.cpp": 1,
-    "cpp_core/src/MdnsDiscovery.cpp": 1,
-    "cpp_core/tests/test_protocol.cpp": 1,
-    "cpp_core/tests/test_transport.cpp": 1,
-    "cpp_core/tests/test_discovery.cpp": 1,
-    "flutter_app/lib/main.dart": 1,
-    "flutter_app/lib/ffi_bridge.dart": 1,
-    "flutter_app/lib/screens/home_screen.dart": 1,
-    "flutter_app/lib/screens/device_list_screen.dart": 1,
-    "flutter_app/lib/screens/transfer_screen.dart": 1
+    "cpp_core/src/MdnsDiscovery.cpp": 3,
+    "cpp_core/CMakeLists.txt": 1,
+    "flutter_app/windows/CMakeLists.txt": 1,
+    "README.md": 2,
+    "docs/codebase-explained.html": 4
   },
-  "anatomy_hits": 14,
+  "anatomy_hits": 6,
   "anatomy_misses": 0,
-  "repeated_reads_warned": 2,
+  "repeated_reads_warned": 4,
   "cerebrum_warnings": 0,
-  "stop_count": 2
+  "stop_count": 1
 }

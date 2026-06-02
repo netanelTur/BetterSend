@@ -1,0 +1,1299 @@
+<!DOCTYPE html>
+<html lang="he">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BetterSend — הסבר הקוד</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+    background: #f5f6f8;
+    color: #1a1d23;
+    line-height: 1.6;
+    font-size: 14px;
+  }
+
+  /* ── Layout ── */
+  .layout { display: flex; min-height: 100vh; }
+
+  /* ── Sidebar ── */
+  nav {
+    width: 230px;
+    flex-shrink: 0;
+    background: #ffffff;
+    border-right: 1px solid #e2e5ea;
+    padding: 28px 0 40px;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    box-shadow: 2px 0 8px rgba(0,0,0,0.04);
+  }
+
+  .nav-brand {
+    padding: 0 18px 20px;
+    border-bottom: 1px solid #e2e5ea;
+    margin-bottom: 12px;
+  }
+
+  .nav-brand h1 {
+    font-size: 15px;
+    font-weight: 700;
+    color: #1a1d23;
+    letter-spacing: -0.2px;
+  }
+
+  .nav-brand p {
+    font-size: 11px;
+    color: #8a919e;
+    margin-top: 2px;
+  }
+
+  nav .section { margin-top: 6px; }
+
+  nav .section-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: #b0b8c4;
+    padding: 10px 18px 4px;
+  }
+
+  nav a {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 18px;
+    color: #4a5160;
+    text-decoration: none;
+    font-size: 12.5px;
+    transition: background 0.12s, color 0.12s;
+    border-left: 2px solid transparent;
+  }
+
+  nav a:hover {
+    color: #1a1d23;
+    background: #f0f2f5;
+    border-left-color: #6366f1;
+  }
+
+  .tag {
+    font-size: 9px;
+    font-weight: 600;
+    padding: 1px 5px;
+    border-radius: 3px;
+    letter-spacing: 0.3px;
+  }
+
+  .tag-cpp  { background: #dbeafe; color: #1d4ed8; }
+  .tag-dart { background: #e0f2fe; color: #0369a1; }
+
+  /* ── Main content ── */
+  main {
+    flex: 1;
+    padding: 40px 52px 80px;
+    min-width: 0;
+  }
+
+  /* ── Page header ── */
+  .page-header {
+    margin-bottom: 44px;
+    padding-bottom: 28px;
+    border-bottom: 1px solid #e2e5ea;
+  }
+
+  .page-header h1 {
+    font-size: 26px;
+    font-weight: 700;
+    color: #1a1d23;
+    letter-spacing: -0.5px;
+  }
+
+  .page-header p {
+    color: #6b7280;
+    margin-top: 6px;
+    font-size: 14px;
+  }
+
+  .page-header .meta {
+    display: flex;
+    gap: 20px;
+    margin-top: 14px;
+    font-size: 12px;
+    color: #9ca3af;
+  }
+
+  .page-header .meta span::before {
+    content: '•';
+    margin-left: 8px;
+    opacity: 0.4;
+  }
+
+  .page-header .meta span:first-child::before { content: none; }
+
+  /* ── File section ── */
+  .file-section { margin-bottom: 60px; }
+
+  .file-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+
+  .file-header h2 {
+    font-size: 19px;
+    font-weight: 700;
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    color: #1a1d23;
+    letter-spacing: -0.3px;
+  }
+
+  .badge {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 10px;
+  }
+
+  .badge-cpp  { background: #dbeafe; color: #1d4ed8; border: 1px solid #bfdbfe; }
+  .badge-dart { background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; }
+  .badge-new  { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
+
+  .file-desc {
+    color: #4b5563;
+    font-size: 13.5px;
+    margin-bottom: 18px;
+    line-height: 1.75;
+    max-width: 820px;
+  }
+
+  .file-desc strong { color: #1a1d23; }
+  .file-desc code {
+    background: #f0f2f5;
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 12px;
+    color: #c0392b;
+  }
+
+  /* ── Concept box ── */
+  .concept {
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 14px 0 18px;
+    max-width: 820px;
+  }
+
+  .concept h3 {
+    font-size: 12.5px;
+    font-weight: 700;
+    color: #92400e;
+    margin-bottom: 6px;
+  }
+
+  .concept p {
+    font-size: 13px;
+    color: #78350f;
+    line-height: 1.7;
+  }
+
+  .concept code {
+    background: #fef3c7;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-family: monospace;
+    font-size: 12px;
+    color: #92400e;
+  }
+
+  /* ── Annotated code table ── */
+  .annotated {
+    border: 1px solid #e2e5ea;
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    font-size: 12.5px;
+  }
+
+  .code-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    border-bottom: 1px solid #f0f2f5;
+    transition: background 0.1s;
+  }
+
+  .code-row:last-child { border-bottom: none; }
+  .code-row:hover .code-cell  { background: #fafbfc; }
+  .code-row:hover .anno-cell  { background: #fafbfc; }
+
+  .code-row.highlight .code-cell { background: #fffef5; }
+  .code-row.highlight .anno-cell { background: #fffef5; }
+
+  .code-row.dim { opacity: 0.5; }
+
+  .code-row.section-break {
+    grid-template-columns: 1fr;
+    background: #f5f6f8;
+    border-bottom: 1px solid #e2e5ea;
+    border-top: 1px solid #e2e5ea;
+    margin-top: 1px;
+  }
+
+  .code-row.section-break .section-title {
+    padding: 5px 16px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: #9ca3af;
+    font-family: -apple-system, sans-serif;
+  }
+
+  .code-cell {
+    padding: 8px 16px;
+    background: #ffffff;
+    white-space: pre;
+    overflow-x: auto;
+    color: #1a1d23;
+    border-right: 1px solid #e2e5ea;
+    line-height: 1.65;
+    direction: ltr;
+    text-align: left;
+  }
+
+  .anno-cell {
+    padding: 8px 16px;
+    background: #ffffff;
+    color: #4b5563;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 12.5px;
+    line-height: 1.6;
+    white-space: normal;
+    display: flex;
+    align-items: center;
+    direction: rtl;
+    text-align: right;
+    border-left: 3px solid transparent;
+  }
+
+  .anno-cell.key   { border-left-color: #6366f1; background: #fafafe; }
+  .anno-cell.info  { border-left-color: #0ea5e9; background: #f8fbff; }
+  .anno-cell.warn  { border-left-color: #f59e0b; background: #fffbf0; }
+  .anno-cell.empty { opacity: 0; }
+
+  .anno-cell strong { color: #1a1d23; font-weight: 600; }
+  .anno-cell code {
+    background: #f0f2f5;
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-family: monospace;
+    font-size: 11.5px;
+    color: #c0392b;
+  }
+
+  /* ── Syntax colors (light mode — VS Code Light+) ── */
+  .kw  { color: #0000ff; font-weight: 500; }  /* keywords */
+  .ty  { color: #267f99; }                     /* types */
+  .fn  { color: #795e26; }                     /* function names */
+  .st  { color: #a31515; }                     /* strings */
+  .cm  { color: #008000; font-style: italic; } /* comments */
+  .pp  { color: #af00db; }                     /* preprocessor */
+  .nm  { color: #098658; }                     /* numbers */
+  .at  { color: #001080; }                     /* attributes */
+  .op  { color: #0000ff; }                     /* operators */
+
+  /* ── Divider ── */
+  hr.divider {
+    border: none;
+    border-top: 1px solid #e2e5ea;
+    margin: 48px 0;
+  }
+</style>
+</head>
+<body>
+
+<div class="layout">
+
+<!-- ── Sidebar ── -->
+<nav>
+  <div class="nav-brand">
+    <h1>BetterSend</h1>
+    <p>הסבר הקוד — Phase 1</p>
+  </div>
+
+  <div class="section">
+    <div class="section-label">אינטרפייסים</div>
+    <a href="#itransferable">ITransferable.h <span class="tag tag-cpp">C++</span></a>
+    <a href="#iprotocol">IProtocol.h <span class="tag tag-cpp">C++</span></a>
+    <a href="#itransport">ITransport.h <span class="tag tag-cpp">C++</span></a>
+    <a href="#idiscovery">IDiscovery.h <span class="tag tag-cpp">C++</span></a>
+    <a href="#iclipboard">IClipboard.h <span class="tag tag-cpp">C++</span></a>
+  </div>
+
+  <div class="section">
+    <div class="section-label">מימושים</div>
+    <a href="#filetransferable">FileTransferable.h <span class="tag tag-cpp">C++</span></a>
+    <a href="#texttransferable">TextTransferable.h <span class="tag tag-cpp">C++</span></a>
+    <a href="#mdnsdiscovery">BonjourDiscovery.cpp (Apple) / MdnsDiscovery.cpp (Windows) <span class="tag tag-cpp">C++</span></a>
+    <a href="#tcptransport">TcpTransport.cpp <span class="tag tag-cpp">C++</span></a>
+    <a href="#transferprotocol">TransferProtocol.cpp <span class="tag tag-cpp">C++</span></a>
+  </div>
+
+  <div class="section">
+    <div class="section-label">API & נתונים</div>
+    <a href="#constants">Constants.h <span class="tag tag-cpp">C++</span></a>
+    <a href="#device">Device.h <span class="tag tag-cpp">C++</span></a>
+    <a href="#logger">Logger.h <span class="tag tag-cpp">C++</span></a>
+    <a href="#api">bettersend_api.cpp <span class="tag tag-cpp">C++</span></a>
+  </div>
+
+  <div class="section">
+    <div class="section-label">Flutter</div>
+    <a href="#main">main.dart <span class="tag tag-dart">Dart</span></a>
+    <a href="#ffibridge">ffi_bridge.dart <span class="tag tag-dart">Dart</span></a>
+    <a href="#splash">splash_screen.dart <span class="tag tag-dart">Dart</span></a>
+    <a href="#homescreen">home_screen.dart <span class="tag tag-dart">Dart</span></a>
+  </div>
+</nav>
+
+<!-- ── Main ── -->
+<main>
+
+<div class="page-header">
+  <h1>BetterSend 🛰️ — הסבר הקוד</h1>
+  <p style="font-size:15px; font-weight:600; color:#1a1d23; margin-bottom:10px;">
+    AirDrop — שדרוג. חוצה פלטפורמות לחלוטין.
+  </p>
+  <p>
+    העברת קבצים וclipboard בין <strong>כל שני מכשירים</strong> עם האפליקציה — ללא אינטרנט, ללא WiFi משותף, ללא חשבון.<br>
+    התלות היחידה: BetterSend על שני המכשירים.
+  </p>
+  <div style="margin:14px 0 10px; display:flex; gap:8px; flex-wrap:wrap;">
+    <span style="background:#dcfce7;color:#166534;border:1px solid #bbf7d0;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;">Phase 1 — iOS ↔ Android ✦ ללא WiFi</span>
+    <span style="background:#f3e8ff;color:#6b21a8;border:1px solid #e9d5ff;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;">Phase 2 — Clipboard</span>
+    <span style="background:#fef3c7;color:#92400e;border:1px solid #fde68a;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;">Phase 3 — כל מערכות ההפעלה</span>
+    <span style="background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;">Future — Cloud Room</span>
+  </div>
+  <div class="meta">
+    <span>עדכון אחרון: 2026-06-02</span>
+    <span>שלב פעיל: Phase 1 — Discovery (Bonjour/AWDL + mDNS Windows)</span>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════ -->
+<div class="file-section" id="itransferable">
+  <div class="file-header">
+    <h2>ITransferable.h</h2>
+    <span class="badge badge-cpp">C++</span>
+    <span class="badge badge-new">חדש</span>
+  </div>
+  <div class="file-desc">
+    החוזה האחיד לכל דבר שניתן לשלוח — קובץ, טקסט, או כל סוג עתידי.
+    כל מי שרוצה לשלוח משהו חייב לממש ממשק זה.
+    זהו לב ה-<strong>Open-Closed Principle</strong> בפרויקט: להוסיף סוג חדש = class חדש, לא שינוי בקוד קיים.
+  </div>
+
+  <div class="concept">
+    <h3>🔑 Open-Closed Principle</h3>
+    <p>
+      קוד <strong>פתוח להרחבה, סגור לשינוי</strong>.
+      <code>ITransport::send()</code> מקבל <code>ITransferable&amp;</code> — הוא לא יודע אם זה קובץ או טקסט.
+      כשנוסיף <code>ContactTransferable</code> בעתיד — <code>ITransport</code> לא ישתנה בכלל.
+    </p>
+  </div>
+
+  <div class="annotated">
+    <div class="code-row dim">
+      <div class="code-cell"><span class="pp">#pragma once</span></div>
+      <div class="anno-cell">אומר לקומפיילר: "טען קובץ זה פעם אחת בלבד". מונע הגדרה כפולה.</div>
+    </div>
+    <div class="code-row dim">
+      <div class="code-cell"><span class="pp">#include</span> <span class="st">"IProtocol.h"</span></div>
+      <div class="anno-cell info">צריך את <code>MessageHeader</code> שמוגדר ב-IProtocol.h — כדי שנדע מה makeHeader מחזיר.</div>
+    </div>
+    <div class="code-row dim">
+      <div class="code-cell"><span class="pp">#include</span> <span class="st">&lt;vector&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;cstdint&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;string_view&gt;</span></div>
+      <div class="anno-cell">ספריות סטנדרטיות: <code>vector</code> לרשימת bytes, <code>uint8_t</code> לסוג byte, <code>string_view</code> לטקסט read-only.</div>
+    </div>
+    <div class="code-row section-break"><div class="section-title">ה-Interface עצמו</div></div>
+    <div class="code-row">
+      <div class="code-cell"><span class="kw">namespace</span> <span class="ty">BetterSend</span> {</div>
+      <div class="anno-cell info">namespace = "מרחב שמות". כל קוד הפרויקט עטוף ב-BetterSend כדי למנוע התנגשות שמות עם ספריות אחרות.</div>
+    </div>
+    <div class="code-row highlight">
+      <div class="code-cell"><span class="kw">class</span> <span class="ty">ITransferable</span> {
+<span class="kw">public</span>:</div>
+      <div class="anno-cell key">הגדרת interface. ב-C++ אין מילת interface — ממשים עם class שכל הפונקציות שלו pure virtual. ה-I בשם = מוסכמה: "I" פירושו Interface.</div>
+    </div>
+    <div class="code-row highlight">
+      <div class="code-cell">  <span class="kw">virtual</span> ~<span class="fn">ITransferable</span>() = <span class="kw">default</span>;</div>
+      <div class="anno-cell key">
+        <div>
+          <strong>virtual destructor</strong> — חובה בכל interface.<br>
+          בלי זה, אם נמחק <code>ITransferable*</code> שמצביע ל-<code>FileTransferable</code>,
+          ה-destructor של FileTransferable לא יקרא ← דליפת זיכרון.<br>
+          <code>= default</code> = "תן לקומפיילר לייצר מימוש ריק".
+        </div>
+      </div>
+    </div>
+    <div class="code-row highlight">
+      <div class="code-cell">  <span class="at">[[nodiscard]]</span> <span class="kw">virtual</span> <span class="ty">MessageHeader</span> <span class="fn">makeHeader</span>(
+    <span class="ty">std::string_view</span> senderName) <span class="kw">const</span> = <span class="nm">0</span>;</div>
+      <div class="anno-cell key">
+        <div>
+          <strong>[[nodiscard]]</strong>: warning אם קוראים ולא שומרים תוצאה.<br>
+          <strong>virtual ... = 0</strong>: pure virtual — כל subclass חייב לממש.<br>
+          <strong>string_view</strong>: טקסט read-only בלי copy — יעיל.<br>
+          <strong>const</strong>: הפונקציה לא משנה את האובייקט.
+        </div>
+      </div>
+    </div>
+    <div class="code-row highlight">
+      <div class="code-cell">  <span class="at">[[nodiscard]]</span> <span class="kw">virtual</span> <span class="ty">std::vector</span>&lt;<span class="ty">uint8_t</span>&gt; <span class="fn">payload</span>() <span class="kw">const</span> = <span class="nm">0</span>;</div>
+      <div class="anno-cell key">
+        <div>
+          מחזיר את ה-<strong>bytes</strong> לשלוח אחרי ה-header.<br>
+          <code>vector&lt;uint8_t&gt;</code> = רשימה של bytes (uint8_t = מספר 0-255, גודל byte אחד).<br>
+          לקובץ: תוכן הקובץ. לטקסט: UTF-8 encoding של הטקסט.
+        </div>
+      </div>
+    </div>
+    <div class="code-row dim">
+      <div class="code-cell">};</div>
+      <div class="anno-cell">סגירת ה-class. נקודה-פסיק אחרי } היא חובה ב-C++ (שלא כמו ב-Java/JS).</div>
+    </div>
+    <div class="code-row dim">
+      <div class="code-cell">} <span class="cm">// namespace BetterSend</span></div>
+      <div class="anno-cell">סגירת ה-namespace. ה-comment מזכיר לנו מה נסגר.</div>
+    </div>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- ════════════════════════════════════════════════════════ -->
+<div class="file-section" id="iprotocol">
+  <div class="file-header">
+    <h2>IProtocol.h</h2>
+    <span class="badge badge-cpp">C++</span>
+  </div>
+  <div class="file-desc">
+    מגדיר שני דברים: (1) <strong>MessageHeader</strong> — המבנה של header הודעה,
+    (2) <strong>IProtocol</strong> — ממשק לקידוד ופענוח headers.
+    הפרוטוקול רק אחראי על ה-header, לא על ה-payload.
+  </div>
+
+  <div class="concept">
+    <h3>🔌 Wire Format — פורמט ההודעה על הרשת</h3>
+    <p>
+      כל הודעה נשלחת כך:<br><br>
+      <code>[ 4 bytes: אורך ה-JSON ][ N bytes: JSON header ][ M bytes: payload ]</code><br><br>
+      ה-4 bytes הראשונים הם big-endian uint32 — אומרים כמה bytes הוא ה-JSON.
+      אז קוראים את ה-JSON (שמכיל סוג, שם, גודל, שם שולח), ואז את ה-payload עצמו.
+    </p>
+  </div>
+
+  <div class="annotated">
+    <div class="code-row section-break"><div class="section-title">MessageHeader — מבנה הנתונים</div></div>
+    <div class="code-row highlight">
+      <div class="code-cell"><span class="kw">struct</span> <span class="ty">MessageHeader</span> {
+  <span class="kw">enum class</span> <span class="ty">Type</span> : <span class="ty">uint8_t</span> { File, Clipboard };</div>
+      <div class="anno-cell key">
+        <div>
+          <strong>struct</strong>: כמו class אבל הכל public כברירת מחדל. משמש ל-data objects.<br>
+          <strong>enum class</strong>: רשימת ערכים עם שם (type-safe). <code>: uint8_t</code> = יאוחסן ב-byte אחד.<br>
+          שני סוגים: קובץ (File) וטקסט/לוח (Clipboard).
+        </div>
+      </div>
+    </div>
+    <div class="code-row">
+      <div class="code-cell">  <span class="ty">Type</span>        type{};</div>
+      <div class="anno-cell info"><code>{}</code> = אתחול ל-0 (ל-File). בלי זה — ערך לא מוגדר (undefined behavior).</div>
+    </div>
+    <div class="code-row">
+      <div class="code-cell">  <span class="ty">std::string</span> name;        <span class="cm">// Filename</span></div>
+      <div class="anno-cell">שם הקובץ. ריק עבור Clipboard (אין שם קובץ).</div>
+    </div>
+    <div class="code-row">
+      <div class="code-cell">  <span class="ty">std::size_t</span> size{};     <span class="cm">// Payload size in bytes</span></div>
+      <div class="anno-cell info"><code>size_t</code> = מספר חיובי בגודל המתאים לפלטפורמה (64-bit במחשב 64-bit). לא משתמשים ב-int כי גודל קובץ יכול לעלות על 2GB.</div>
+    </div>
+    <div class="code-row">
+      <div class="code-cell">  <span class="ty">std::string</span> senderName;</div>
+      <div class="anno-cell">שם המכשיר השולח (מה שהמשתמש הגדיר, למשל "iPhone של יונתן").</div>
+    </div>
+    <div class="code-row section-break"><div class="section-title">IProtocol — ממשק הקידוד</div></div>
+    <div class="code-row highlight">
+      <div class="code-cell">  <span class="at">[[nodiscard]]</span> <span class="kw">virtual</span> <span class="ty">std::vector</span>&lt;<span class="ty">uint8_t</span>&gt; <span class="fn">encodeHeader</span>(
+    <span class="kw">const</span> <span class="ty">MessageHeader</span>&amp; header) = <span class="nm">0</span>;</div>
+      <div class="anno-cell key">
+        <div>
+          מקבל MessageHeader → מחזיר bytes לשלוח על הרשת.<br>
+          <code>const ... &amp;</code> = reference (לא copy) + לא ישתנה. יעיל לאובייקטים גדולים.
+        </div>
+      </div>
+    </div>
+    <div class="code-row highlight">
+      <div class="code-cell">  <span class="at">[[nodiscard]]</span> <span class="kw">virtual</span> <span class="ty">MessageHeader</span> <span class="fn">decodeHeader</span>(
+    <span class="ty">std::span</span>&lt;<span class="kw">const</span> <span class="ty">uint8_t</span>&gt; data) = <span class="nm">0</span>;</div>
+      <div class="anno-cell key">
+        <div>
+          <strong>span</strong>: "חלון" לתוך array קיים, בלי copy. בטוח יותר מ-raw pointer כי שומר גם את האורך.<br>
+          זורק <code>runtime_error</code> אם ה-data פגום.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- ════════════════════════════════════════════════════════ -->
+<div class="file-section" id="itransport">
+  <div class="file-header">
+    <h2>ITransport.h</h2>
+    <span class="badge badge-cpp">C++</span>
+  </div>
+  <div class="file-desc">
+    ממשק ה-<strong>Strategy</strong> לשכבת התקשורת. מגדיר מה Transport יכול לעשות, לא איך.
+    המימוש הנוכחי: <code>TcpTransport</code>. בבדיקות: <code>MockTransport</code>.
+  </div>
+
+  <div class="annotated">
+    <div class="code-row section-break"><div class="section-title">Transfer — תוצאת קבלה</div></div>
+    <div class="code-row highlight">
+      <div class="code-cell"><span class="kw">struct</span> <span class="ty">Transfer</span> {
+  <span class="kw">enum class</span> <span class="ty">Type</span> : <span class="ty">uint8_t</span> { File, Clipboard };
+  <span class="ty">Type</span>        type;
+  <span class="ty">std::string</span> senderName;
+  <span class="ty">std::string</span> name;
+  <span class="ty">std::size_t</span> sizeBytes{};
+  <span class="ty">std::string</span> data;
+};</div>
+      <div class="anno-cell key">
+        <div>
+          מה שמגיע ל-callback כשמתקבלת העברה:<br>
+          • <code>type</code>: קובץ או clipboard<br>
+          • <code>senderName</code>: שם המכשיר ששלח<br>
+          • <code>name</code>: שם קובץ (ריק ל-clipboard)<br>
+          • <code>data</code>: לקובץ = נתיב שמירה, לטקסט = התוכן עצמו
+        </div>
+      </div>
+    </div>
+    <div class="code-row section-break"><div class="section-title">ITransport — ממשק</div></div>
+    <div class="code-row highlight">
+      <div class="code-cell">  <span class="kw">virtual void</span> <span class="fn">startServer</span>(<span class="ty">int</span> port,
+    <span class="ty">std::function</span>&lt;<span class="kw">void</span>(<span class="ty">Transfer</span>)&gt; onReceive) = <span class="nm">0</span>;</div>
+      <div class="anno-cell key">
+        <div>
+          <strong>std::function&lt;void(Transfer)&gt;</strong>: סוג של callback — כל פונקציה שמקבלת Transfer ומחזירה void.<br>
+          יכול להיות lambda, פונקציה רגילה, או method עם bind.<br>
+          ה-callback יקרא מ-thread רקע — חשוב לסנכרון!
+        </div>
+      </div>
+    </div>
+    <div class="code-row highlight">
+      <div class="code-cell">  <span class="kw">virtual void</span> <span class="fn">send</span>(<span class="kw">const</span> <span class="ty">std::string</span>&amp; ip, <span class="ty">int</span> port,
+               <span class="kw">const</span> <span class="ty">ITransferable</span>&amp; item) = <span class="nm">0</span>;</div>
+      <div class="anno-cell key">
+        <div>
+          OCP בפעולה: Transport לא יודע אם <code>item</code> הוא קובץ, טקסט, או כל דבר אחר.
+          הוא פשוט קורא <code>item.makeHeader()</code> + <code>item.payload()</code>.
+          להוסיף סוג חדש = לא לשנות שורה זו.
+        </div>
+      </div>
+    </div>
+    <div class="code-row">
+      <div class="code-cell">  <span class="kw">virtual void</span> <span class="fn">stop</span>() = <span class="nm">0</span>;</div>
+      <div class="anno-cell info">עוצר server ומחכה שכל ה-threads יסיימו (blocking). חובה לקרוא לפני השמדת האובייקט.</div>
+    </div>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- ════════════════════════════════════════════════════════ -->
+<div class="file-section" id="idiscovery">
+  <div class="file-header">
+    <h2>IDiscovery.h</h2>
+    <span class="badge badge-cpp">C++</span>
+  </div>
+  <div class="file-desc">
+    ממשק לגילוי מכשירים ברשת המקומית. משתמש ב-mDNS (Multicast DNS) — אותו פרוטוקול
+    שמאחורי Bonjour של Apple ו-AirDrop.
+  </div>
+
+  <div class="concept">
+    <h3>🌐 mDNS — איך זה עובד</h3>
+    <p>
+      כל מכשיר "מכריז" על עצמו ברשת עם שם שירות <code>_bettersend._tcp.local.</code>
+      מכשירים אחרים מקשיבים לכריזות אלה ומגלים אחד את השני.
+      לא צריך שרת מרכזי — peer-to-peer לחלוטין.
+    </p>
+  </div>
+
+  <div class="annotated">
+    <div class="code-row highlight">
+      <div class="code-cell">  <span class="kw">virtual void</span> <span class="fn">startAdvertising</span>(
+    <span class="kw">const</span> <span class="ty">std::string</span>&amp; deviceName, <span class="ty">int</span> port) = <span class="nm">0</span>;</div>
+      <div class="anno-cell key">מכריז "אני קיים" לרשת. שולח UDP multicast לכתובת 224.0.0.251:5353 עם שם המכשיר והפורט שעליו אנחנו מאזינים.</div>
+    </div>
+    <div class="code-row highlight">
+      <div class="code-cell">  <span class="kw">virtual void</span> <span class="fn">startDiscovery</span>(
+    <span class="ty">std::function</span>&lt;<span class="kw">void</span>(<span class="ty">Device</span>)&gt; onFound) = <span class="nm">0</span>;</div>
+      <div class="anno-cell key">מחפש מכשירים שגם הם מריצים BetterSend. לכל מכשיר שנמצא — קורא ל-<code>onFound</code> עם ה-Device שלו.</div>
+    </div>
+    <div class="code-row">
+      <div class="code-cell">  <span class="kw">virtual void</span> <span class="fn">stop</span>() = <span class="nm">0</span>;</div>
+      <div class="anno-cell">עוצר גם advertising וגם discovery. מחכה ש-threads ייצאו (blocking).</div>
+    </div>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- ════════════════════════════════════════════════════════ -->
+<div class="file-section" id="filetransferable">
+  <div class="file-header">
+    <h2>FileTransferable.h</h2>
+    <span class="badge badge-cpp">C++</span>
+    <span class="badge badge-new">חדש</span>
+  </div>
+  <div class="file-desc">
+    מימוש של <code>ITransferable</code> לקבצים. יודע לקחת path לקובץ ולספק header + bytes.
+  </div>
+
+  <div class="annotated">
+    <div class="code-row dim">
+      <div class="code-cell"><span class="pp">#include</span> <span class="st">&lt;filesystem&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;fstream&gt;</span></div>
+      <div class="anno-cell info"><code>filesystem</code>: C++17 — עבודה עם paths, גדלי קבצים. <code>fstream</code>: קריאת/כתיבת קבצים.</div>
+    </div>
+    <div class="code-row highlight">
+      <div class="code-cell">  <span class="kw">explicit</span> <span class="fn">FileTransferable</span>(<span class="ty">std::filesystem::path</span> path)
+    : path_{<span class="ty">std::move</span>(path)} {}</div>
+      <div class="anno-cell key">
+        <div>
+          <strong>explicit</strong>: מונע המרה אוטומטית לא מכוונת (למשל string ← FileTransferable בטעות).<br>
+          <strong>std::move</strong>: מעביר בעלות על ה-path בלי copy. יעיל.
+        </div>
+      </div>
+    </div>
+    <div class="code-row highlight">
+      <div class="code-cell">  <span class="ty">MessageHeader</span> <span class="fn">makeHeader</span>(<span class="ty">std::string_view</span> senderName) <span class="kw">const override</span> {
+    <span class="kw">return</span> <span class="ty">MessageHeader</span>{
+      .type       = <span class="ty">MessageHeader</span>::<span class="ty">Type</span>::File,
+      .name       = path_.<span class="fn">filename</span>().<span class="fn">string</span>(),
+      .size       = <span class="ty">std::filesystem</span>::<span class="fn">file_size</span>(path_),
+      .senderName = <span class="ty">std::string</span>(senderName),
+    };
+  }</div>
+      <div class="anno-cell key">
+        <div>
+          <strong>override</strong>: אומר לקומפיילר "אני מוודא שזו באמת דריסה של פונקציה virtual מה-base". אם שגינו בשם — error.<br>
+          <code>.filename()</code>: מחלץ רק שם הקובץ מה-path המלא (למשל <code>/photos/cat.jpg</code> → <code>cat.jpg</code>).<br>
+          Designated initializers (.type=, .name=) — C++20.
+        </div>
+      </div>
+    </div>
+    <div class="code-row highlight">
+      <div class="code-cell">  <span class="ty">std::vector</span>&lt;<span class="ty">uint8_t</span>&gt; <span class="fn">payload</span>() <span class="kw">const override</span> {
+    <span class="ty">std::ifstream</span> f(path_, <span class="ty">std::ios</span>::binary);
+    <span class="kw">if</span> (!f) <span class="kw">throw</span> <span class="ty">std::runtime_error</span>(...);
+    <span class="kw">return</span> <span class="ty">std::vector</span>&lt;<span class="ty">uint8_t</span>&gt;(
+      <span class="ty">std::istreambuf_iterator</span>&lt;<span class="ty">char</span>&gt;(f),
+      <span class="ty">std::istreambuf_iterator</span>&lt;<span class="ty">char</span>&gt;()
+    );
+  }</div>
+      <div class="anno-cell key">
+        <div>
+          קורא את כל תוכן הקובץ ל-vector של bytes.<br>
+          <strong>istreambuf_iterator</strong>: iterator שקורא byte-by-byte מ-stream — הדרך הנפוצה לקרוא קובץ לvector.<br>
+          <strong>std::ios::binary</strong>: חובה — בלי זה Windows ממיר <code>\r\n</code> ל-<code>\n</code> ופוגם בקבצים.
+        </div>
+      </div>
+    </div>
+    <div class="code-row">
+      <div class="code-cell"><span class="kw">private</span>:
+  <span class="ty">std::filesystem::path</span> path_;</div>
+      <div class="anno-cell info">המשתנה היחיד: ה-path לקובץ. <code>_</code> בסוף שם = מוסכמה לmember variables פרטיים.</div>
+    </div>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- ════════════════════════════════════════════════════════ -->
+<div class="file-section" id="texttransferable">
+  <div class="file-header">
+    <h2>TextTransferable.h</h2>
+    <span class="badge badge-cpp">C++</span>
+    <span class="badge badge-new">חדש</span>
+  </div>
+  <div class="file-desc">
+    מימוש של <code>ITransferable</code> לטקסט (clipboard). פשוט יותר מ-FileTransferable.
+  </div>
+
+  <div class="annotated">
+    <div class="code-row highlight">
+      <div class="code-cell">  <span class="ty">MessageHeader</span> <span class="fn">makeHeader</span>(...) <span class="kw">const override</span> {
+    <span class="kw">return</span> <span class="ty">MessageHeader</span>{
+      .type = <span class="ty">MessageHeader</span>::<span class="ty">Type</span>::Clipboard,
+      .name = {},
+      .size = text_.<span class="fn">size</span>(),
+      ...
+    };
+  }</div>
+      <div class="anno-cell key">
+        <div>
+          <code>name = {}</code>: string ריקה — לטקסט אין שם קובץ.<br>
+          <code>text_.size()</code>: גודל ב-bytes של הטקסט (UTF-8 יכול להיות יותר bytes ממספר תווים).
+        </div>
+      </div>
+    </div>
+    <div class="code-row highlight">
+      <div class="code-cell">  <span class="ty">std::vector</span>&lt;<span class="ty">uint8_t</span>&gt; <span class="fn">payload</span>() <span class="kw">const override</span> {
+    <span class="kw">return</span> <span class="ty">std::vector</span>&lt;<span class="ty">uint8_t</span>&gt;(
+      text_.<span class="fn">begin</span>(), text_.<span class="fn">end</span>());
+  }</div>
+      <div class="anno-cell key">הופך string ל-vector של bytes. string הוא כבר UTF-8 ב-C++, אז פשוט מעתיקים את ה-bytes שלו.</div>
+    </div>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- ════════════════════════════════════════════════════════ -->
+<div class="file-section" id="mdnsdiscovery">
+  <div class="file-header">
+    <h2>BonjourDiscovery.cpp</h2>
+    <span class="badge badge-cpp">C++</span>
+    <span class="badge badge-new">Apple בלבד</span>
+  </div>
+  <div class="file-desc">
+    מימוש של <code>IDiscovery</code> ל-macOS/iOS באמצעות <strong>Bonjour</strong> (<code>dns_sd.h</code>).
+    עובד <em>דרך</em> <code>mDNSResponder</code> של המערכת — sandbox-compatible, לא דורש הרשאות מיוחדות.<br>
+    <strong>MdnsDiscovery.cpp</strong> (raw UDP port 5353) משמש Android, Linux, <strong>Windows</strong>.<br>
+    תמיכה ב-Windows: <code>GetAdaptersAddresses</code> במקום <code>getifaddrs</code> (POSIX-only). headers בתוך <code>#ifdef _WIN32</code>.<br>
+    שני המימושים מרשמים <code>_bettersend._tcp.local.</code> — מכשיר Apple ומכשיר Windows <strong>יזהו אחד את השני</strong> באותה רשת.
+  </div>
+
+  <div class="concept">
+    <h3>📡 Bonjour + AWDL — גילוי ללא WiFi משותף</h3>
+    <p>
+      ב-macOS, <code>mDNSResponder</code> מנהל את כל תעבורת ה-mDNS. ניסיון לקשור raw UDP לport 5353 נחסם על ידי ה-sandbox.<br>
+      <strong>Bonjour API</strong>: מדבר ישירות עם <code>mDNSResponder</code> דרך Unix socket — sandbox-compatible.<br>
+      <strong>AWDL</strong> (Apple Wireless Direct Link): רשת WiFi peer-to-peer ישירה בין מכשירים — <strong>ללא router</strong>. זו אותה טכנולוגיה שמשמשת AirDrop.<br>
+      <code>kDNSServiceFlagsIncludeAWDL</code>: מרחיב את הגילוי מ"אותה רשת" ל"קרוב פיזית".<br>
+      <strong>שרשרת הקריאות</strong>: <code>Browse</code> מוצא שם שירות → <code>Resolve</code> מוצא hostname:port → <code>GetAddrInfo</code> מוצא IP.
+    </p>
+  </div>
+
+  <div class="annotated">
+    <div class="code-row section-break"><div class="section-title">Shared Connection</div></div>
+    <div class="code-row highlight">
+      <div class="code-cell"><span class="ty">DNSServiceCreateConnection</span>(&amp;mainRef_);
+
+<span class="kw">static constexpr</span> <span class="ty">DNSServiceFlags</span> kP2PFlags =
+  kDNSServiceFlagsShareConnection  |
+  kDNSServiceFlagsIncludeAWDL      | <span class="cm">// peer-to-peer WiFi</span>
+  kDNSServiceFlagsIncludeP2P;        <span class="cm">// other P2P interfaces</span></div>
+      <div class="anno-cell key">
+        <div>
+          <code>kDNSServiceFlagsShareConnection</code>: כל ה-sub-operations חולקים fd אחד.<br>
+          <code>kDNSServiceFlagsIncludeAWDL</code>: מפעיל AWDL — מצא מכשירים קרובים <strong>ללא WiFi משותף</strong>, כמו AirDrop.<br>
+          <code>kDNSServiceFlagsIncludeP2P</code>: ממשקים P2P נוספים.
+        </div>
+      </div>
+    </div>
+
+    <div class="code-row section-break"><div class="section-title">Browse → Resolve → GetAddrInfo chain</div></div>
+    <div class="code-row highlight">
+      <div class="code-cell"><span class="kw">static void</span> <span class="fn">browseCb</span>(..., <span class="kw">const char</span>* serviceName, ...) {
+  <span class="cm">// serviceName = device display name (e.g. "iPhone-Yoni")</span>
+  <span class="kw">auto</span>* rc = <span class="kw">new</span> <span class="ty">ResolveCtx</span>{st, serviceName};
+  <span class="ty">DNSServiceRef</span> resolveRef = st-&gt;mainRef;
+  <span class="fn">DNSServiceResolve</span>(&amp;resolveRef,
+    kDNSServiceFlagsShareConnection, ifIdx,
+    serviceName, regtype, domain, resolveCb, rc);
+}</div>
+      <div class="anno-cell key">
+        <div>
+          מקבל שם שירות → מתחיל Resolve לקבלת hostname:port.<br>
+          <code>new ResolveCtx</code>: מעביר את שם המכשיר הלאה בשרשרת — יימחק ב-resolveCb.<br>
+          <code>kDNSServiceFlagsAdd</code>: מסנן רק מכשירים חדשים (לא "remove" events).
+        </div>
+      </div>
+    </div>
+    <div class="code-row highlight">
+      <div class="code-cell"><span class="kw">static void</span> <span class="fn">resolveCb</span>(..., <span class="kw">const char</span>* hosttarget, <span class="ty">uint16_t</span> port, ...) {
+  <span class="kw">auto</span>* ac = <span class="kw">new</span> <span class="ty">AddrCtx</span>{rc-&gt;state, rc-&gt;serviceName, <span class="fn">ntohs</span>(port)};
+  <span class="kw">delete</span> rc;
+  <span class="fn">DNSServiceGetAddrInfo</span>(&amp;addrRef,
+    kDNSServiceFlagsShareConnection | kDNSServiceFlagsTimeout,
+    ifIdx, kDNSServiceProtocol_IPv4, hosttarget, addrInfoCb, ac);
+}</div>
+      <div class="anno-cell key">
+        <div>
+          מקבל hostname:port → מבקש IP.<br>
+          <code>ntohs(port)</code>: ממיר מ-network byte order (big-endian) ל-host byte order.<br>
+          <code>kDNSServiceFlagsTimeout</code>: אם לא נמצא IP בזמן — callback עם שגיאה (לא תקוע לנצח).
+        </div>
+      </div>
+    </div>
+    <div class="code-row highlight">
+      <div class="code-cell"><span class="kw">static void</span> <span class="fn">addrInfoCb</span>(..., <span class="kw">const</span> <span class="ty">sockaddr</span>* addr, ...) {
+  <span class="fn">inet_ntop</span>(AF_INET, &amp;sin-&gt;sin_addr, ipbuf, ...);
+  ctx-&gt;state-&gt;<span class="fn">onFound</span>(<span class="ty">Device</span>{ctx-&gt;serviceName, ip, ctx-&gt;port});
+  <span class="fn">DNSServiceRefDeallocate</span>(sdRef);
+  <span class="kw">delete</span> ctx;
+}</div>
+      <div class="anno-cell key">
+        <div>
+          סוף השרשרת: יש שם + IP + port → בונים <code>Device</code> וקוראים ל-callback.<br>
+          <code>inet_ntop</code>: ממיר כתובת IP בינארית ל-string קריא.<br>
+          <code>seen</code> set + mutex: מונע duplicate callbacks לאותו IP.
+        </div>
+      </div>
+    </div>
+
+    <div class="code-row section-break"><div class="section-title">Event Loop</div></div>
+    <div class="code-row highlight">
+      <div class="code-cell"><span class="kw">while</span> (running_ &amp;&amp; mainRef_) {
+  <span class="kw">int</span> fd = <span class="fn">DNSServiceRefSockFD</span>(mainRef_);
+  fd_set fds; FD_ZERO(&amp;fds); FD_SET(fd, &amp;fds);
+  <span class="kw">struct</span> <span class="ty">timeval</span> tv{<span class="nm">0</span>, <span class="nm">100000</span>};
+  <span class="kw">if</span> (<span class="fn">select</span>(fd+<span class="nm">1</span>, &amp;fds, <span class="kw">nullptr</span>, <span class="kw">nullptr</span>, &amp;tv) &gt; <span class="nm">0</span>)
+    <span class="fn">DNSServiceProcessResult</span>(mainRef_);
+}</div>
+      <div class="anno-cell key">
+        <div>
+          <code>DNSServiceRefSockFD</code>: מחזיר Unix socket ל-<code>mDNSResponder</code>.<br>
+          <code>select</code> + <code>DNSServiceProcessResult</code>: הגישה הנכונה ל-Bonjour async — חוסמים 100ms, מעבדים כשיש נתונים.<br>
+          כל ה-callbacks (browse, resolve, addrInfo) מגיעים דרך loop זה.
+        </div>
+      </div>
+    </div>
+
+    <div class="code-row section-break"><div class="section-title">Factory</div></div>
+    <div class="code-row highlight">
+      <div class="code-cell"><span class="ty">std::unique_ptr</span>&lt;<span class="ty">IDiscovery</span>&gt; <span class="fn">makeDiscovery</span>() {
+  <span class="kw">return</span> <span class="ty">std::make_unique</span>&lt;<span class="ty">BonjourDiscovery</span>&gt;();
+}</div>
+      <div class="anno-cell key">
+        <div>
+          אותה חתימה כמו ב-<code>MdnsDiscovery.cpp</code> — ה-CMakeLists.txt מחליט איזה קובץ לקמפל.<br>
+          Apple → <code>BonjourDiscovery</code>. שאר הפלטפורמות → <code>MdnsDiscovery</code>.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- ════════════════════════════════════════════════════════ -->
+<div class="file-section" id="constants">
+  <div class="file-header">
+    <h2>Constants.h</h2>
+    <span class="badge badge-cpp">C++</span>
+  </div>
+  <div class="file-desc">
+    כל ה"מספרים הקסומים" של הפרויקט. כלל: לעולם לא לכתוב <code>9000</code> ישירות בקוד — תמיד <code>kDefaultPort</code>.
+  </div>
+
+  <div class="annotated">
+    <div class="code-row highlight">
+      <div class="code-cell"><span class="kw">inline constexpr int</span>     kDefaultPort        = <span class="nm">9000</span>;</div>
+      <div class="anno-cell key">
+        <div>
+          <strong>constexpr</strong>: הערך ידוע בזמן קומפילציה — מהיר כמו literal, אבל עם שם.<br>
+          <strong>inline</strong>: מאפשר הגדרה בheader בלי לגרום ל"הגדרה כפולה" כשה-header נטען ממספר קבצים.
+        </div>
+      </div>
+    </div>
+    <div class="code-row">
+      <div class="code-cell"><span class="kw">inline constexpr char</span>    kServiceType[]      = <span class="st">"_bettersend._tcp.local."</span>;</div>
+      <div class="anno-cell info">שם שירות ה-mDNS. כל מכשיר שמריץ BetterSend מכריז ומחפש שם זה בדיוק.</div>
+    </div>
+    <div class="code-row">
+      <div class="code-cell"><span class="kw">inline constexpr uint32_t</span> kHeaderLengthBytes  = <span class="nm">4</span>;</div>
+      <div class="anno-cell info">4 bytes = uint32 big-endian שאומר כמה bytes הוא ה-JSON header.</div>
+    </div>
+    <div class="code-row">
+      <div class="code-cell"><span class="kw">inline constexpr uint32_t</span> kReceiveBufferSize  = <span class="nm">65536</span>;</div>
+      <div class="anno-cell">64KB — גודל buffer לקריאה ברשת. קורא עד 64KB בכל "סיבוב" של recv.</div>
+    </div>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- ════════════════════════════════════════════════════════ -->
+<div class="file-section" id="api">
+  <div class="file-header">
+    <h2>bettersend_api.cpp</h2>
+    <span class="badge badge-cpp">C++</span>
+  </div>
+  <div class="file-desc">
+    ה-<strong>Facade</strong> של הפרויקט. חושף C API פשוט לצד Flutter.
+    כל הקוד עטוף ב-try/catch כי exceptions לא יכולים לעבור את גבול ה-FFI.
+  </div>
+
+  <div class="concept">
+    <h3>🚧 למה extern "C"?</h3>
+    <p>
+      C++ מבצע "name mangling" — משנה שמות פונקציות (<code>send</code> הופך ל-<code>_ZN10BetterSend4sendEv</code>).
+      <code>extern "C"</code> מבטל זאת — Flutter מצפא לשם <code>bettersend_create</code> בדיוק, לא גרסה mangled.
+    </p>
+  </div>
+
+  <div class="annotated">
+    <div class="code-row highlight">
+      <div class="code-cell"><span class="kw">struct</span> <span class="ty">BetterSendContext</span> {
+  <span class="ty">std::string</span>                 localDeviceName;
+  <span class="ty">std::unique_ptr</span>&lt;<span class="ty">IDiscovery</span>&gt; discovery;
+  <span class="ty">std::unique_ptr</span>&lt;<span class="ty">ITransport</span>&gt; transport;
+  <span class="ty">std::unique_ptr</span>&lt;<span class="ty">IClipboard</span>&gt; clipboard;
+};</div>
+      <div class="anno-cell key">
+        <div>
+          <strong>unique_ptr</strong>: smart pointer — מחיק את האובייקט אוטומטית כשה-context נהרס. אין צורך ב-manual delete.<br>
+          מחזיקים את ה-interfaces (לא את המימושים) — Strategy Pattern בפעולה.
+        </div>
+      </div>
+    </div>
+    <div class="code-row highlight">
+      <div class="code-cell"><span class="kw">extern</span> <span class="st">"C"</span> {
+
+<span class="kw">void</span>* <span class="fn">bettersend_create</span>(<span class="kw">const char</span>* deviceName) {
+  ctx-&gt;discovery = <span class="ty">BetterSend</span>::<span class="fn">makeDiscovery</span>();
+  <span class="kw">return</span> ctx;
+}</div>
+      <div class="anno-cell key">
+        <div>
+          <strong>void*</strong>: pointer לא מוקלד — Flutter מחזיק כ"handle" אטום.<br>
+          <code>makeDiscovery()</code>: Factory — יוצר MdnsDiscovery בלי לחשוף את המחלקה.<br>
+          OCP: אם נרצה BLE discovery — רק שורת ה-factory משתנה.
+        </div>
+      </div>
+    </div>
+    <div class="code-row highlight">
+      <div class="code-cell"><span class="kw">void</span> <span class="fn">bettersend_start_advertising</span>(<span class="kw">void</span>* handle, <span class="kw">int</span> port) {
+  <span class="kw">auto</span>* ctx = <span class="kw">static_cast</span>&lt;<span class="ty">BetterSendContext</span>*&gt;(handle);
+  ctx-&gt;discovery-&gt;<span class="fn">startAdvertising</span>(ctx-&gt;localDeviceName, port);
+}</div>
+      <div class="anno-cell key">
+        <div>
+          <code>static_cast&lt;BetterSendContext*&gt;</code>: ממיר את ה-handle בחזרה לטיפוס המקורי.<br>
+          קורא דרך interface — לא יודע שזה <code>MdnsDiscovery</code> ספציפית (OCP).
+        </div>
+      </div>
+    </div>
+    <div class="code-row highlight">
+      <div class="code-cell"><span class="kw">void</span> <span class="fn">bettersend_start_discovery</span>(<span class="kw">void</span>* handle,
+                                     <span class="ty">DeviceFoundCallback</span> onFound) {
+  ctx-&gt;discovery-&gt;<span class="fn">startDiscovery</span>([onFound](<span class="ty">BetterSend::Device</span> d) {
+    <span class="fn">onFound</span>(d.name.<span class="fn">c_str</span>(), d.ip.<span class="fn">c_str</span>(), d.port);
+  });
+}</div>
+      <div class="anno-cell key">
+        <div>
+          Lambda עם <code>[onFound]</code> capture: עוטף את ה-C callback בתוך std::function.<br>
+          <code>.c_str()</code>: מחזיר <code>const char*</code> — תקף רק בזמן הקריאה.<br>
+          Flutter מעתיק את הstring ב-<code>toDartString()</code> לפני שהpointer נהרס.
+        </div>
+      </div>
+    </div>
+    <div class="code-row highlight">
+      <div class="code-cell"><span class="kw">const char</span>* <span class="fn">bettersend_echo</span>(<span class="kw">const char</span>* text) {
+  <span class="kw">static thread_local</span> <span class="ty">std::string</span> buf;
+  buf = <span class="st">"Hello from C++: "</span>; buf += text;
+  <span class="kw">return</span> buf.<span class="fn">c_str</span>();
+}</div>
+      <div class="anno-cell key">
+        <div>
+          <strong>thread_local</strong>: כל thread מקבל עותק נפרד — thread-safe ללא mutex.<br>
+          <strong>static</strong>: חי כל חיי התוכנה → pointer תקף לאחר return.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- ════════════════════════════════════════════════════════ -->
+<div class="file-section" id="ffibridge">
+  <div class="file-header">
+    <h2>ffi_bridge.dart</h2>
+    <span class="badge badge-dart">Dart</span>
+  </div>
+  <div class="file-desc">
+    הגשר בין Flutter לספריית C++. ללא mock mode — הספרייה חייבת להיות built.
+    אם הספרייה לא נמצאת, האפליקציה נופלת עם שגיאה ברורה.
+  </div>
+
+  <div class="concept">
+    <h3>🔗 איך FFI עובד</h3>
+    <p>
+      לכל פונקציה C צריך שני typedefs:<br>
+      1. <code>Native</code> — חתימת C (עם Pointer, Int32, Void)<br>
+      2. <code>Dart</code> — חתימת Dart (עם Pointer, int, void)<br>
+      ואז <code>lookupFunction</code> שטוען את הפונקציה מה-dylib.<br>
+      <strong>אין mock mode</strong> — real network behavior בלבד.
+    </p>
+  </div>
+
+  <div class="annotated">
+    <div class="code-row highlight">
+      <div class="code-cell"><span class="ty">DynamicLibrary</span> <span class="fn">_loadLibrary</span>() {
+  <span class="kw">if</span> (<span class="ty">Platform</span>.isAndroid)
+    <span class="kw">return</span> <span class="ty">DynamicLibrary</span>.<span class="fn">open</span>(<span class="st">'libbettersend_core.so'</span>);
+  <span class="kw">if</span> (<span class="ty">Platform</span>.isIOS)
+    <span class="kw">return</span> <span class="ty">DynamicLibrary</span>.<span class="fn">process</span>();
+  <span class="kw">if</span> (<span class="ty">Platform</span>.isMacOS)
+    <span class="kw">return</span> <span class="ty">DynamicLibrary</span>.<span class="fn">open</span>(<span class="st">'libbettersend_core.dylib'</span>);
+  <span class="kw">if</span> (<span class="ty">Platform</span>.isWindows)
+    <span class="kw">return</span> <span class="ty">DynamicLibrary</span>.<span class="fn">open</span>(<span class="st">'bettersend_core.dll'</span>);
+  <span class="kw">throw</span> <span class="ty">UnsupportedError</span>(<span class="st">'Platform not supported'</span>);
+}
+
+<span class="kw">final</span> <span class="ty">DynamicLibrary</span> _lib = <span class="fn">_loadLibrary</span>();</div>
+      <div class="anno-cell key">
+        <div>
+          כל פלטפורמה טוענת שם קובץ אחר: <code>.dylib</code> (macOS), <code>.dll</code> (Windows), <code>.so</code> (Android), <code>process()</code> (iOS — הספרייה מוטמעת בbundle).<br>
+          <code>DynamicLibrary</code> non-nullable — חובה שהספרייה תהיה built.<br>
+          <code>throw UnsupportedError</code>: פלטפורמה לא נתמכת → crash מיידי עם הודעה ברורה.
+        </div>
+      </div>
+    </div>
+    <div class="code-row highlight">
+      <div class="code-cell"><span class="kw">typedef</span> _NativeEcho = <span class="ty">Pointer</span>&lt;<span class="ty">Utf8</span>&gt; <span class="ty">Function</span>(<span class="ty">Pointer</span>&lt;<span class="ty">Utf8</span>&gt;);
+<span class="kw">typedef</span> _DartEcho   = <span class="ty">Pointer</span>&lt;<span class="ty">Utf8</span>&gt; <span class="ty">Function</span>(<span class="ty">Pointer</span>&lt;<span class="ty">Utf8</span>&gt;);
+
+<span class="kw">typedef</span> <span class="ty">NativeDeviceFoundCb</span> = <span class="ty">Void</span> <span class="ty">Function</span>(
+  <span class="ty">Pointer</span>&lt;<span class="ty">Utf8</span>&gt;, <span class="ty">Pointer</span>&lt;<span class="ty">Utf8</span>&gt;, <span class="ty">Int32</span>);</div>
+      <div class="anno-cell key">
+        <div>
+          שני typedefs לכל פונקציה — חובה של Dart FFI.<br>
+          <code>NativeDeviceFoundCb</code>: typedef לcallback — C יקרא לזה כשמוצא מכשיר.<br>
+          <code>Int32</code> בNative ↔ <code>int</code> בDart — המרה אוטומטית.
+        </div>
+      </div>
+    </div>
+    <div class="code-row highlight">
+      <div class="code-cell"><span class="kw">final</span> _echo    = _lib.<span class="fn">lookupFunction</span>&lt;_NativeEcho, _DartEcho&gt;(<span class="st">'bettersend_echo'</span>);
+<span class="kw">final</span> _create  = _lib.<span class="fn">lookupFunction</span>&lt;_NativeCreate, _DartCreate&gt;(<span class="st">'bettersend_create'</span>);
+<span class="kw">final</span> _startDiscovery = _lib.<span class="fn">lookupFunction</span>&lt;...&gt;(<span class="st">'bettersend_start_discovery'</span>);</div>
+      <div class="anno-cell key">
+        <div>
+          ללא <code>?</code> — non-nullable. אם הסמל לא קיים ב-dylib → <code>ArgumentError</code> עם שם הסמל.<br>
+          כל הlookups רצים בזמן טעינה — בעיות נתפסות מיידית, לא רק כשהפונקציה נקראת.
+        </div>
+      </div>
+    </div>
+    <div class="code-row highlight">
+      <div class="code-cell"><span class="kw">void</span> <span class="fn">startDiscovery</span>({<span class="kw">required void</span> <span class="ty">Function</span>(<span class="ty">DiscoveredDevice</span>) onFound}) {
+  _discoveryCb = <span class="ty">NativeCallable</span>&lt;<span class="ty">NativeDeviceFoundCb</span>&gt;.<span class="fn">listener</span>(
+    (namePtr, ipPtr, port) =&gt; <span class="fn">onFound</span>(<span class="ty">DiscoveredDevice</span>(
+      name: namePtr.<span class="fn">toDartString</span>(),
+      ip:   ipPtr.<span class="fn">toDartString</span>(),
+      port: port)));
+  <span class="fn">_startDiscovery</span>(_handle, _discoveryCb!.nativeFunction);
+}</div>
+      <div class="anno-cell key">
+        <div>
+          <code>NativeCallable.listener</code>: יוצר C function pointer שמעביר קריאות ל-Dart isolate — thread-safe.<br>
+          C++ קורא לcallback מthread רקע → <code>listener</code> מעביר לthead הUI אוטומטית.<br>
+          <code>_discoveryCb</code> חייב להישמר (member var) — אם יינפה, ה-C pointer יהפוך ללא תקף.
+        </div>
+      </div>
+    </div>
+    <div class="code-row highlight">
+      <div class="code-cell"><span class="kw">void</span> <span class="fn">dispose</span>() {
+  _discoveryCb?.<span class="fn">close</span>(); <span class="cm">// releases native function pointer</span>
+  <span class="fn">_destroy</span>(_handle);   <span class="cm">// frees BetterSendContext on C++ heap</span>
+}</div>
+      <div class="anno-cell key">
+        <div>
+          <code>close()</code>: מנקה את ה-native function pointer — חובה למנוע memory leak.<br>
+          <code>_destroy(_handle)</code>: קורא ל-<code>delete ctx</code> ב-C++. בלי זה — memory leak של כל ה-discovery + threads.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- ════════════════════════════════════════════════════════ -->
+<div class="file-section" id="main">
+  <div class="file-header">
+    <h2>main.dart</h2>
+    <span class="badge badge-dart">Dart</span>
+  </div>
+
+  <div class="annotated">
+    <div class="code-row highlight">
+      <div class="code-cell"><span class="kw">void</span> <span class="fn">main</span>() {
+  <span class="kw">const</span> <span class="ty">String</span> deviceName = <span class="st">'MyDevice'</span>;
+  <span class="kw">final</span> bridge = <span class="ty">BetterSendBridge</span>(deviceName);
+  <span class="fn">runApp</span>(<span class="ty">BetterSendApp</span>(bridge: bridge));
+}</div>
+      <div class="anno-cell key">
+        <div>
+          נקודת הכניסה לכל אפליקציית Flutter.<br>
+          <code>const</code>: קבוע זמן-קומפילציה (לא ניתן לשינוי).<br>
+          <code>final</code>: reference לא ניתנת לשינוי (אבל האובייקט עצמו יכול להשתנות).<br>
+          <code>runApp</code>: מפעיל את Flutter engine עם ה-widget הראשי.
+        </div>
+      </div>
+    </div>
+    <div class="code-row highlight">
+      <div class="code-cell">  home: _showSplash
+    ? <span class="ty">SplashScreen</span>(onDone: () =&gt;
+        <span class="fn">setState</span>(() =&gt; _showSplash = <span class="kw">false</span>))
+    : <span class="ty">HomeScreen</span>(bridge: widget.bridge),</div>
+      <div class="anno-cell key">
+        <div>
+          Ternary operator: אם _showSplash → SplashScreen, אחרת → HomeScreen.<br>
+          <code>() =&gt; setState(...)</code>: arrow function (lambda קצרה עם ביטוי אחד).<br>
+          <code>setState</code>: מודיע ל-Flutter לצייר מחדש (re-render) את ה-widget.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- ════════════════════════════════════════════════════════ -->
+<div class="file-section" id="splash">
+  <div class="file-header">
+    <h2>splash_screen.dart</h2>
+    <span class="badge badge-dart">Dart</span>
+    <span class="badge badge-new">חדש</span>
+  </div>
+
+  <div class="annotated">
+    <div class="code-row highlight">
+      <div class="code-cell"><span class="kw">class</span> <span class="ty">SplashScreen</span> <span class="kw">extends</span> <span class="ty">StatefulWidget</span> {
+  <span class="kw">final</span> <span class="ty">VoidCallback</span> onDone;</div>
+      <div class="anno-cell key">
+        <div>
+          <strong>StatefulWidget</strong>: widget שיש לו state שמשתנה (animation).<br>
+          <strong>VoidCallback</strong>: סוג של פונקציה שלא מחזירה כלום ולא מקבלת פרמטרים.<br>
+          <code>onDone</code>: callback שנקרא כשנגמר ה-splash — ה-parent מחליט מה לעשות.
+        </div>
+      </div>
+    </div>
+    <div class="code-row highlight">
+      <div class="code-cell"><span class="kw">class</span> _SplashScreenState <span class="kw">extends</span> <span class="ty">State</span>&lt;<span class="ty">SplashScreen</span>&gt;
+    <span class="kw">with</span> <span class="ty">SingleTickerProviderStateMixin</span> {</div>
+      <div class="anno-cell key">
+        <div>
+          <strong>with mixin</strong>: הוספת capabilities בלי ירושה מרובה.<br>
+          <code>SingleTickerProviderStateMixin</code>: מספק vsync ticker לאנימציה — מסנכרן עם קצב הרענון של המסך.
+        </div>
+      </div>
+    </div>
+    <div class="code-row highlight">
+      <div class="code-cell">  _ctrl = <span class="ty">AnimationController</span>(
+    vsync: <span class="kw">this</span>, duration: <span class="kw">const</span> <span class="ty">Duration</span>(milliseconds: <span class="nm">900</span>));
+  _fade = <span class="ty">CurvedAnimation</span>(parent: _ctrl, curve: <span class="ty">Curves</span>.easeIn);</div>
+      <div class="anno-cell key">
+        <div>
+          <code>AnimationController</code>: מנהל ערך 0→1 לאורך הזמן.<br>
+          <code>CurvedAnimation</code>: עוטף controller עם עקומת האצה — easeIn = מתחיל לאט ומאיץ.
+        </div>
+      </div>
+    </div>
+    <div class="code-row">
+      <div class="code-cell">  <span class="ty">Future</span>.<span class="fn">delayed</span>(<span class="kw">const</span> <span class="ty">Duration</span>(milliseconds: <span class="nm">2200</span>), widget.onDone);</div>
+      <div class="anno-cell info">מחכה 2.2 שניות ואז קורא ל-onDone. Future = async operation שמסתיים בעתיד.</div>
+    </div>
+    <div class="code-row">
+      <div class="code-cell">  <span class="ty">FadeTransition</span>(opacity: _fade, child: ...)</div>
+      <div class="anno-cell info">Widget מובנה ב-Flutter שמבצע fade in/out לפי ה-animation value.</div>
+    </div>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- ════════════════════════════════════════════════════════ -->
+<div class="file-section" id="homescreen">
+  <div class="file-header">
+    <h2>home_screen.dart</h2>
+    <span class="badge badge-dart">Dart</span>
+  </div>
+
+  <div class="annotated">
+    <div class="code-row highlight">
+      <div class="code-cell">  <span class="kw">void</span> <span class="fn">_runEcho</span>() {
+    <span class="kw">final</span> result = widget.bridge.<span class="fn">echo</span>(<span class="st">'Hello World'</span>);
+    <span class="fn">setState</span>(() =&gt; _echoResult = result);
+  }</div>
+      <div class="anno-cell key">
+        <div>
+          <code>widget.bridge</code>: גישה ל-BetterSendBridge שהועבר מה-parent.<br>
+          <code>setState</code>: Flutter יצייר מחדש — _echoResult יוצג על המסך.<br>
+          אם C++ לא built: <code>result = "[mock] Hello World"</code>.
+        </div>
+      </div>
+    </div>
+    <div class="code-row">
+      <div class="code-cell">  color: _echoResult.<span class="fn">startsWith</span>(<span class="st">'[mock]'</span>)
+    ? <span class="ty">Colors</span>.orange : <span class="ty">Colors</span>.green,</div>
+      <div class="anno-cell info">כתום = mock mode, ירוק = C++ אמיתי. visual feedback שמאפשר לדעת אם הFFI עובד.</div>
+    </div>
+    <div class="code-row highlight">
+      <div class="code-cell">  <span class="kw">void</span> <span class="fn">_initBridge</span>() {
+    widget.bridge.<span class="fn">startAdvertising</span>(<span class="nm">9000</span>);
+    widget.bridge.<span class="fn">startDiscovery</span>(onFound: (d) {
+      <span class="fn">setState</span>(() {
+        <span class="kw">if</span> (!_devices.<span class="fn">any</span>((e) =&gt; e.ip == d.ip)) _devices.<span class="fn">add</span>(d);
+      });
+    });
+  }</div>
+      <div class="anno-cell key">
+        <div>
+          נקרא מ-<code>initState</code> — מפעיל advertising ו-discovery ברגע שה-screen נטען.<br>
+          <code>!_devices.any((e) => e.ip == d.ip)</code>: deduplication — לא מוסיפים מכשיר שכבר קיים ברשימה.<br>
+          <code>setState</code>: Flutter מצייר מחדש → הרשימה מתעדכנת על המסך.
+        </div>
+      </div>
+    </div>
+    <div class="code-row highlight">
+      <div class="code-cell">  <span class="kw">class</span> <span class="ty">_DeviceCard</span> <span class="kw">extends</span> <span class="ty">StatelessWidget</span> {
+    <span class="kw">final</span> <span class="ty">DiscoveredDevice</span> device;
+    <span class="kw">final</span> <span class="ty">VoidCallback</span> onSend;
+  <span class="cm">// ListTile: icon, name, IP:port, send button</span>
+  }</div>
+      <div class="anno-cell key">
+        <div>
+          <strong>StatelessWidget</strong>: widget ללא state — מקבל data ומציג. לא קורא setState.<br>
+          מופרד ל-class עצמאי: HomeScreen נקי, _DeviceCard reusable.<br>
+          כפתור send → <code>Navigator.push(TransferScreen)</code>.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</main>
+</div>
+
+</body>
+</html>
