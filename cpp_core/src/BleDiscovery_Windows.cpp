@@ -136,14 +136,12 @@ public:
 
 		watcher_ = winrt_btle::BluetoothLEAdvertisementWatcher();
 		watcher_.ScanningMode(winrt_btle::BluetoothLEScanningMode::Active);
+		watcher_.AllowExtendedAdvertisements(true);
 
-		// Hardware-level filter — only deliver advertisements whose
-		// ManufacturerData carries our company ID + magic prefix. Other BLE
-		// traffic (headphones, beacons, etc.) is dropped before reaching us.
-		winrt_btle::BluetoothLEManufacturerData filterMfg;
-		filterMfg.CompanyId(kBleCompanyId);
-		filterMfg.Data(makeBetterSendPayload({})); // magic only, no name
-		watcher_.AdvertisementFilter().Advertisement().ManufacturerData().Append(filterMfg);
+		// No hardware filter while we debug — every advertisement reaches the
+		// callback, and extractPeerName() decides whether it's one of ours.
+		// Cheap because BLE adverts in a room are dozens per second, not
+		// thousands, and we drop non-BetterSend ones almost immediately.
 
 		watcher_.Received([this](auto&&, auto const& args) {
 			handleReceived(args);
@@ -177,23 +175,43 @@ public:
 
 private:
 	void handleReceived(const winrt_btle::BluetoothLEAdvertisementReceivedEventArgs& args) {
-		uint64_t addr = args.BluetoothAddress();
+		uint64_t addr   = args.BluetoothAddress();
+		auto     adv    = args.Advertisement();
 
-		// Decode peer name from our manufacturer-data entry. The watcher's
-		// hardware filter already gated on company ID + magic, but double-check
-		// here so a malformed packet can't spoof us.
 		std::string name;
-		for (auto const& md : args.Advertisement().ManufacturerData()) {
+
+		// Path 1 — Windows peer: ManufacturerData (0xFFFF + magic + name).
+		// Native CoreBluetooth on macOS silently drops manufacturer data, so
+		// this branch fires only for other Windows BetterSend peers.
+		for (auto const& md : adv.ManufacturerData()) {
 			name = extractPeerName(md);
 			if (!name.empty()) break;
 		}
-		if (name.empty()) return; // filter false-positive — ignore
 
-		// Dedupe — BLE advertisements fire every ~100ms while a peer is in range;
-		// we only want to surface each peer once until it disappears.
+		// Path 2 — Mac peer: ServiceUuids (kBleServiceUuid) + LocalName in
+		// scan response. macOS can only advertise via CBAdvertisementData-
+		// ServiceUUIDsKey + LocalNameKey, so we match on the service GUID
+		// and read the device name out of LocalName.
+		if (name.empty()) {
+			static const winrt::guid kServiceGuid(kBleServiceUuid);
+			for (auto const& uuid : adv.ServiceUuids()) {
+				if (uuid == kServiceGuid) {
+					name = hstringToStdString(adv.LocalName());
+					if (name.empty()) name = std::string("Mac-") + formatBdAddr(addr);
+					break;
+				}
+			}
+		}
+
+		if (name.empty()) return; // not a BetterSend peer — ignore
+
+		// Dedupe by NAME (not address) — Apple devices rotate their BLE MAC
+		// every ~15 min for privacy, and a fresh Windows session also picks
+		// a new advertising address. Keying on name keeps a peer to a single
+		// row across address rotations.
 		{
 			std::lock_guard lock(seenMu_);
-			if (!seen_.insert(addr).second) return;
+			if (!seenNames_.insert(name).second) return;
 		}
 
 		std::string addrStr = formatBdAddr(addr);
@@ -213,7 +231,7 @@ private:
 	std::atomic<bool>                             advertising_{false};
 	std::atomic<bool>                             scanning_{false};
 	std::mutex                                    seenMu_;
-	std::unordered_set<uint64_t>                  seen_;
+	std::unordered_set<std::string>               seenNames_;
 };
 
 // ── Factory ───────────────────────────────────────────────────────────────────
