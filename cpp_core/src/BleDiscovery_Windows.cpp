@@ -210,8 +210,39 @@ private:
 			auto it = nameCache_.find(addr);
 			if (it != nameCache_.end()) name = it->second;
 		}
-		if (name.empty()) name = std::string("Mac-") + formatBdAddr(addr);
-		surfaceIfNew(name, addr);
+		if (!name.empty()) {
+			surfaceIfNew(name, addr);
+			return;
+		}
+
+		// LocalName never made it to us (Apple drops it from scan response
+		// in some configurations). Fall back to querying Windows' Bluetooth
+		// system cache via BluetoothLEDevice — it often carries a friendly
+		// device name from past pairings or system scans. Async, fire-and-
+		// forget; surface once it resolves. Dedupe key handles re-fires.
+		{
+			std::lock_guard lock(lookupMu_);
+			if (!lookupsInFlight_.insert(addr).second) return; // one in flight
+		}
+		auto op = winrt::Windows::Devices::Bluetooth::BluetoothLEDevice::FromBluetoothAddressAsync(addr);
+		op.Completed([this, addr](auto&& sender, winrt::Windows::Foundation::AsyncStatus status) {
+			std::string resolved;
+			if (status == winrt::Windows::Foundation::AsyncStatus::Completed) {
+				try {
+					auto device = sender.GetResults();
+					if (device != nullptr) resolved = hstringToStdString(device.Name());
+				} catch (...) { /* swallow; we'll fall through to MAC fallback */ }
+			}
+			// Windows hands back "Bluetooth XX:XX:XX:XX:XX:XX" when it has no
+			// friendly name cached — useless to the user. Treat as empty.
+			if (resolved.rfind("Bluetooth ", 0) == 0) resolved.clear();
+			if (resolved.empty()) resolved = std::string("Mac-") + formatBdAddr(addr);
+			{
+				std::lock_guard lock(lookupMu_);
+				lookupsInFlight_.erase(addr);
+			}
+			surfaceIfNew(resolved, addr);
+		});
 	}
 
 	void surfaceIfNew(const std::string& name, uint64_t addr) {
@@ -242,6 +273,9 @@ private:
 
 	std::mutex                                    nameCacheMu_;
 	std::unordered_map<uint64_t, std::string>     nameCache_;
+
+	std::mutex                                    lookupMu_;
+	std::unordered_set<uint64_t>                  lookupsInFlight_;
 };
 
 // ── Factory ───────────────────────────────────────────────────────────────────
