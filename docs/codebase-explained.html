@@ -1048,17 +1048,34 @@ target_link_libraries(bettersend_core <span class="kw">PRIVATE</span>
     </div>
     <div class="code-row highlight">
       <div class="code-cell"><span class="ty">NSDictionary</span>* opts = @{ CBCentralManagerScanOptionAllowDuplicatesKey : @NO };
-[delegate_.central <span class="fn">scanForPeripheralsWithServices</span>:@[ delegate_.serviceUuid ]
-                                          <span class="fn">options</span>:opts];</div>
+[delegate_.central <span class="fn">scanForPeripheralsWithServices</span>:<span class="kw">nil</span> <span class="fn">options</span>:opts];</div>
+      <div class="anno-cell key">
+        <div>
+          <strong><code>services:nil</code>, לא <code>@[serviceUuid]</code></strong>. ניסוי ראשון העביר את ה-UUID — נתנאל ראה אותי, אבל אני <em>לא</em> ראיתי אותו. הסיבה: ב-legacy advertisement של 31 בייטים, צד ה-Windows כבר ממלא את התקציב ב-Flags + ManufacturerData (CompanyId + magic + name) ולא משאיר מקום ל-Service UUID. ה-controller של ה-Mac סינן את כל ה-packets שלו על-ידי ה-filter. עם <code>services:nil</code> כל ה-peers נכנסים ל-callback ואנחנו סומכים על בדיקת חתימה ידנית בקוד.
+        </div>
+      </div>
+    </div>
+    <div class="code-row">
+      <div class="code-cell"><span class="ty">NSArray</span>&lt;<span class="ty">CBUUID</span>*&gt;* uuids = advertisementData[CBAdvertisementDataServiceUUIDsKey];
+<span class="kw">if</span> (uuids) {
+    <span class="kw">for</span> (<span class="ty">CBUUID</span>* u <span class="kw">in</span> uuids) {
+        <span class="kw">if</span> ([u <span class="fn">isEqual</span>:self.serviceUuid]) { isBetterSendApple = YES; <span class="kw">break</span>; }
+    }
+}
+<span class="cm">// Path B: Windows ManufacturerData</span>
+<span class="kw">if</span> (name.empty()) {
+    <span class="ty">NSData</span>* mfgData = advertisementData[CBAdvertisementDataManufacturerDataKey];
+    name = <span class="fn">extractWindowsPeerName</span>(mfgData);
+}</div>
       <div class="anno-cell info">
-        מעבירים את ה-Service UUID ל-<code>scanForPeripheralsWithServices:</code> — זה filter ברמת Bluetooth controller, אז ה-callback מקבל רק peers שמכריזים על אותו UUID. צד ה-Windows מכריז את אותו UUID לצד ה-ManufacturerData שלו, אז ה-Mac קולט אותו דרך המסלול הזה.
+        שתי חתימות, שתי דרכים. אם השדה <code>ServiceUUIDsKey</code> בdict מכיל את ה-UUID שלנו — זה peer מעולם Apple, ושמו ב-<code>LocalNameKey</code>. אחרת בודקים <code>ManufacturerDataKey</code> — אם הוא נפתח ב-<code>0xFF 0xFF</code> + magic, זה peer מעולם Windows ושמו בבייטים שאחרי ה-magic. אם אף אחת מהחתימות לא תופסת — לא BetterSend, מתעלמים.
       </div>
     </div>
     <div class="code-row">
       <div class="code-cell"><span class="ty">NSString</span>* localName = advertisementData[CBAdvertisementDataLocalNameKey];
 <span class="kw">if</span> (localName.length == 0) localName = peripheral.name;</div>
       <div class="anno-cell info">
-        ה-LocalName יכול להגיע ב-advertisement payload או ב-scan response — CoreBluetooth מאחד את שני המקורות תחת המפתח הזה. אם בכל זאת ריק, נופלים ל-<code>peripheral.name</code> ש-CoreBluetooth מגדיר מה-GAP discovery.
+        ב-path של Apple ה-LocalName יכול להגיע ב-advertisement payload או ב-scan response — CoreBluetooth מאחד את שני המקורות תחת המפתח הזה. אם בכל זאת ריק, נופלים ל-<code>peripheral.name</code> ש-CoreBluetooth מגדיר מה-GAP discovery.
       </div>
     </div>
     <div class="code-row highlight">

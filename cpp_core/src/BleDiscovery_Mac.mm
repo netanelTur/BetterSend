@@ -4,16 +4,22 @@
 //
 // Stack: Objective-C++ over CoreBluetooth.
 //   - CBPeripheralManager  → advertise Service UUID + LocalName
-//   - CBCentralManager     → scan filtered on the same Service UUID
+//   - CBCentralManager     → scan with services:nil, recognise BOTH the
+//                            Apple-style ServiceUUID advert and the Windows
+//                            ManufacturerData advert in software.
 //
 // Apple-only quirk: CBPeripheralManager.startAdvertising: silently drops
 // every advertisement key except CBAdvertisementDataServiceUUIDsKey and
 // CBAdvertisementDataLocalNameKey. ManufacturerData never leaves the device,
-// so the Windows side (which advertises ManufacturerData and also listens
-// for our Service UUID) and the Mac side use distinct payload shapes that
-// the peer recognises:
+// so the wire payload is asymmetric and the scanner has to know both shapes:
 //   Mac→Windows: 128-bit Service UUID kBleServiceUuid + Local Name = device name
 //   Windows→Mac: CompanyId 0xFFFF + magic prefix + Local Name = device name
+//
+// scanForPeripheralsWithServices: filters at the BLE controller — passing
+// the BetterSend UUID would block every Windows packet (Windows can't put
+// arbitrary 128-bit Service UUIDs into legacy advertisements at the same
+// time as ManufacturerData; advertisement byte budget is 31). So the Mac
+// scans unfiltered and does the signature check itself.
 //
 // CoreBluetooth delivers all delegate callbacks on a serial dispatch queue
 // we own, matching IDiscovery's "callbacks may come from a background
@@ -59,6 +65,23 @@ static NSString* makeAdvertName(const std::string& deviceName) {
 		trimmed.resize(kBleMaxNameLen);
 	}
 	return [NSString stringWithUTF8String:trimmed.c_str()];
+}
+
+// Recognise the Windows ManufacturerData signature:
+//   [companyId LE = 0xFF 0xFF][magic 4B][UTF-8 name...]
+// Returns the trailing name on a match, empty string otherwise.
+static std::string extractWindowsPeerName(NSData* mfgData) {
+	if (!mfgData) return {};
+	const NSUInteger headLen = 2 + sizeof(kBleMagicBytes);
+	if (mfgData.length < headLen) return {};
+	const uint8_t* p = static_cast<const uint8_t*>(mfgData.bytes);
+	if (p[0] != (kBleCompanyId & 0xFF)) return {};
+	if (p[1] != ((kBleCompanyId >> 8) & 0xFF)) return {};
+	for (size_t i = 0; i < sizeof(kBleMagicBytes); ++i) {
+		if (p[2 + i] != kBleMagicBytes[i]) return {};
+	}
+	return std::string(reinterpret_cast<const char*>(p + headLen),
+		mfgData.length - headLen);
 }
 
 class BleDiscoveryMac : public IDiscovery {
@@ -158,12 +181,12 @@ private:
 	void kickScan() {
 		if (!delegate_.wantScan) return;
 		if (delegate_.central.isScanning) return;
-		// Hardware-level filter on the BetterSend Service UUID. AllowDuplicates
-		// stays off — we'd just throw the dupes away, and the OS already filters
-		// re-emissions of the same peer to once-per-discovery cycle.
+		// services:nil — accept every peripheral. The signature check in
+		// didDiscoverPeripheral admits both the Apple ServiceUUID advert and
+		// the Windows ManufacturerData advert; filtering on the UUID at the
+		// controller would silently drop every Windows packet.
 		NSDictionary* opts = @{ CBCentralManagerScanOptionAllowDuplicatesKey : @NO };
-		[delegate_.central scanForPeripheralsWithServices:@[ delegate_.serviceUuid ]
-		                                          options:opts];
+		[delegate_.central scanForPeripheralsWithServices:nil options:opts];
 	}
 
 	BSBleMacDelegate*               delegate_{nil};
@@ -258,21 +281,28 @@ std::unique_ptr<IDiscovery> makeDiscovery() {
                   RSSI:(NSNumber *)RSSI {
 	using namespace BetterSend;
 
-	// Prefer the LocalName carried in the advertisement payload; some peers
-	// only publish the name in the scan response that CoreBluetooth surfaces
-	// here as peripheral.name. Fall back to that, then to the system-issued
-	// peripheral identifier so we never call back with an empty name.
-	NSString* localName = advertisementData[CBAdvertisementDataLocalNameKey];
-	if (localName.length == 0) localName = peripheral.name;
-
+	// Path A — Apple peer: BetterSend Service UUID is in the advert list.
 	std::string name;
-	if (localName.length > 0) {
-		name = std::string(localName.UTF8String);
-	} else {
-		// No name at all — skip. Without a stable name we can't dedup across
-		// MAC-rotations on the peer side either.
-		return;
+	NSArray<CBUUID*>* uuids = advertisementData[CBAdvertisementDataServiceUUIDsKey];
+	BOOL isBetterSendApple = NO;
+	if (uuids) {
+		for (CBUUID* u in uuids) {
+			if ([u isEqual:self.serviceUuid]) { isBetterSendApple = YES; break; }
+		}
 	}
+	if (isBetterSendApple) {
+		NSString* localName = advertisementData[CBAdvertisementDataLocalNameKey];
+		if (localName.length == 0) localName = peripheral.name;
+		if (localName.length > 0) name = std::string(localName.UTF8String);
+	}
+
+	// Path B — Windows peer: ManufacturerData carries [0xFF 0xFF][magic][name].
+	if (name.empty()) {
+		NSData* mfgData = advertisementData[CBAdvertisementDataManufacturerDataKey];
+		name = extractWindowsPeerName(mfgData);
+	}
+
+	if (name.empty()) return; // neither signature — not a BetterSend peer
 
 	if (self.owner) {
 		self.owner->onPeerDiscovered(name, peripheral.identifier.UUIDString);
