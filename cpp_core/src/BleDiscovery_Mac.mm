@@ -3,16 +3,21 @@
 // Built only when the host platform is Apple-desktop (see CMakeLists.txt guard).
 //
 // Stack: Objective-C++ over CoreBluetooth.
-//   - CBPeripheralManager  → broadcast ManufacturerData=[companyId][magic][name]
-//   - CBCentralManager     → scan for peers carrying that same payload
+//   - CBPeripheralManager  → advertise Service UUID + LocalName
+//   - CBCentralManager     → scan filtered on the same Service UUID
 //
-// macOS quirk: CBAdvertisementDataManufacturerDataKey expects the raw bytes
-// **after** the BLE AD type byte, meaning the first 2 bytes ARE the
-// little-endian company ID. So the payload below begins with {0xFF,0xFF} to
-// match the Windows publisher's CompanyId=0xFFFF + Data=[magic][name].
+// Apple-only quirk: CBPeripheralManager.startAdvertising: silently drops
+// every advertisement key except CBAdvertisementDataServiceUUIDsKey and
+// CBAdvertisementDataLocalNameKey. ManufacturerData never leaves the device,
+// so the Windows side (which advertises ManufacturerData and also listens
+// for our Service UUID) and the Mac side use distinct payload shapes that
+// the peer recognises:
+//   Mac→Windows: 128-bit Service UUID kBleServiceUuid + Local Name = device name
+//   Windows→Mac: CompanyId 0xFFFF + magic prefix + Local Name = device name
 //
-// CoreBluetooth delivers all delegate callbacks on a dispatch queue we own,
-// matching IDiscovery's "callbacks may come from a background thread" contract.
+// CoreBluetooth delivers all delegate callbacks on a serial dispatch queue
+// we own, matching IDiscovery's "callbacks may come from a background
+// thread" contract.
 
 #import <Foundation/Foundation.h>
 #import <CoreBluetooth/CoreBluetooth.h>
@@ -39,7 +44,8 @@ namespace BetterSend {
 @interface BSBleMacDelegate : NSObject <CBPeripheralManagerDelegate, CBCentralManagerDelegate>
 @property (nonatomic, strong) CBPeripheralManager* peripheral;
 @property (nonatomic, strong) CBCentralManager*   central;
-@property (nonatomic, copy)   NSData*             advertPayload;
+@property (nonatomic, strong) CBUUID*             serviceUuid;
+@property (nonatomic, copy)   NSString*           advertName;
 @property (nonatomic, assign) BOOL                wantAdvertise;
 @property (nonatomic, assign) BOOL                wantScan;
 @property (nonatomic, assign) BetterSend::BleDiscoveryMac* owner;
@@ -47,55 +53,32 @@ namespace BetterSend {
 
 namespace BetterSend {
 
-// Build the manufacturer-data payload as macOS expects it:
-//   [companyId LE][magic][name UTF-8 trimmed to kBleMaxNameLen]
-static NSData* makeAdvertPayloadNS(const std::string& deviceName) {
-	NSMutableData* d = [NSMutableData dataWithCapacity:2 + sizeof(kBleMagicBytes) + kBleMaxNameLen];
-	const uint8_t cid[2] = {
-		static_cast<uint8_t>(kBleCompanyId & 0xFF),
-		static_cast<uint8_t>((kBleCompanyId >> 8) & 0xFF),
-	};
-	[d appendBytes:cid length:2];
-	[d appendBytes:kBleMagicBytes length:sizeof(kBleMagicBytes)];
-	int n = static_cast<int>(deviceName.size());
-	if (n > kBleMaxNameLen) n = kBleMaxNameLen;
-	if (n > 0) [d appendBytes:deviceName.data() length:static_cast<NSUInteger>(n)];
-	return d;
-}
-
-// Decode the peer name from incoming ManufacturerData. Returns empty string if
-// the company ID or magic prefix don't match BetterSend.
-static std::string extractPeerName(NSData* mfgData) {
-	if (!mfgData) return {};
-	const NSUInteger headLen = 2 + sizeof(kBleMagicBytes);
-	if (mfgData.length < headLen) return {};
-	const uint8_t* p = static_cast<const uint8_t*>(mfgData.bytes);
-	if (p[0] != (kBleCompanyId & 0xFF)) return {};
-	if (p[1] != ((kBleCompanyId >> 8) & 0xFF)) return {};
-	for (size_t i = 0; i < sizeof(kBleMagicBytes); ++i) {
-		if (p[2 + i] != kBleMagicBytes[i]) return {};
+static NSString* makeAdvertName(const std::string& deviceName) {
+	std::string trimmed = deviceName;
+	if (trimmed.size() > static_cast<size_t>(kBleMaxNameLen)) {
+		trimmed.resize(kBleMaxNameLen);
 	}
-	return std::string(reinterpret_cast<const char*>(p + headLen),
-		mfgData.length - headLen);
+	return [NSString stringWithUTF8String:trimmed.c_str()];
 }
 
 class BleDiscoveryMac : public IDiscovery {
 public:
 	BleDiscoveryMac() {
 		@autoreleasepool {
-			delegate_       = [[BSBleMacDelegate alloc] init];
-			delegate_.owner = this;
-			queue_          = dispatch_queue_create("com.bettersend.ble", DISPATCH_QUEUE_SERIAL);
+			delegate_             = [[BSBleMacDelegate alloc] init];
+			delegate_.owner       = this;
+			delegate_.serviceUuid = [CBUUID UUIDWithString:@(kBleServiceUuid)];
+			queue_                = dispatch_queue_create("com.bettersend.ble", DISPATCH_QUEUE_SERIAL);
 		}
 	}
 
 	~BleDiscoveryMac() override { stop(); }
 
 	void startAdvertising(const std::string& deviceName, int /*port*/) override {
-		BS_LOG_INFO(kComponent, "BLE advertise: name='{}' companyId={:#06x}",
-			deviceName, kBleCompanyId);
+		BS_LOG_INFO(kComponent, "BLE advertise: name='{}' serviceUuid={}",
+			deviceName, kBleServiceUuid);
 		@autoreleasepool {
-			delegate_.advertPayload = makeAdvertPayloadNS(deviceName);
+			delegate_.advertName    = makeAdvertName(deviceName);
 			delegate_.wantAdvertise = YES;
 			advertising_.store(true);
 			if (!delegate_.peripheral) {
@@ -108,7 +91,7 @@ public:
 	}
 
 	void startDiscovery(std::function<void(Device)> onFound) override {
-		BS_LOG_INFO(kComponent, "BLE discovery: companyId={:#06x}", kBleCompanyId);
+		BS_LOG_INFO(kComponent, "BLE discovery: serviceUuid={}", kBleServiceUuid);
 		onFound_ = std::move(onFound);
 		@autoreleasepool {
 			delegate_.wantScan = YES;
@@ -145,13 +128,16 @@ public:
 	void onPeripheralReady() { kickAdvertise(); }
 	void onCentralReady()    { kickScan();      }
 
-	void onPeerDiscovered(NSString* peerId, const std::string& peerName) {
-		if (!peerId || peerName.empty()) return;
-		const std::string idStr(peerId.UTF8String);
+	void onPeerDiscovered(const std::string& peerName, NSString* fallbackId) {
+		if (peerName.empty()) return;
+		// Dedupe by name: Windows rotates its BLE MAC every restart, so
+		// peripheral.identifier.UUIDString shifts under us. The device name is
+		// stable for the lifetime of the BetterSend session on each side.
 		{
 			std::lock_guard<std::mutex> lock(seenMu_);
-			if (!seen_.insert(idStr).second) return;
+			if (!seen_.insert(peerName).second) return;
 		}
+		const std::string idStr = fallbackId ? std::string(fallbackId.UTF8String) : peerName;
 		BS_LOG_INFO(kComponent, "Found peer: name='{}' id={}", peerName, idStr);
 		if (onFound_) {
 			onFound_(Device{peerName, std::string("ble:") + idStr, kDefaultPort});
@@ -160,10 +146,11 @@ public:
 
 private:
 	void kickAdvertise() {
-		if (!delegate_.wantAdvertise || !delegate_.advertPayload) return;
+		if (!delegate_.wantAdvertise || !delegate_.advertName) return;
 		if (delegate_.peripheral.isAdvertising) return;
 		NSDictionary* opts = @{
-			(NSString*)CBAdvertisementDataManufacturerDataKey : delegate_.advertPayload,
+			CBAdvertisementDataServiceUUIDsKey : @[ delegate_.serviceUuid ],
+			CBAdvertisementDataLocalNameKey    : delegate_.advertName,
 		};
 		[delegate_.peripheral startAdvertising:opts];
 	}
@@ -171,10 +158,12 @@ private:
 	void kickScan() {
 		if (!delegate_.wantScan) return;
 		if (delegate_.central.isScanning) return;
-		// services:nil delivers every advertisement; we filter by manufacturer data
-		// in the receive path. macOS doesn't expose a hardware-level manufacturer
-		// filter (only Service UUID), so software-side filtering it is.
-		[delegate_.central scanForPeripheralsWithServices:nil options:nil];
+		// Hardware-level filter on the BetterSend Service UUID. AllowDuplicates
+		// stays off — we'd just throw the dupes away, and the OS already filters
+		// re-emissions of the same peer to once-per-discovery cycle.
+		NSDictionary* opts = @{ CBCentralManagerScanOptionAllowDuplicatesKey : @NO };
+		[delegate_.central scanForPeripheralsWithServices:@[ delegate_.serviceUuid ]
+		                                          options:opts];
 	}
 
 	BSBleMacDelegate*               delegate_{nil};
@@ -268,12 +257,25 @@ std::unique_ptr<IDiscovery> makeDiscovery() {
      advertisementData:(NSDictionary<NSString *,id> *)advertisementData
                   RSSI:(NSNumber *)RSSI {
 	using namespace BetterSend;
-	NSData* mfgData = advertisementData[CBAdvertisementDataManufacturerDataKey];
-	const std::string name = extractPeerName(mfgData);
-	if (name.empty()) return; // not a BetterSend peer
+
+	// Prefer the LocalName carried in the advertisement payload; some peers
+	// only publish the name in the scan response that CoreBluetooth surfaces
+	// here as peripheral.name. Fall back to that, then to the system-issued
+	// peripheral identifier so we never call back with an empty name.
+	NSString* localName = advertisementData[CBAdvertisementDataLocalNameKey];
+	if (localName.length == 0) localName = peripheral.name;
+
+	std::string name;
+	if (localName.length > 0) {
+		name = std::string(localName.UTF8String);
+	} else {
+		// No name at all — skip. Without a stable name we can't dedup across
+		// MAC-rotations on the peer side either.
+		return;
+	}
 
 	if (self.owner) {
-		self.owner->onPeerDiscovered(peripheral.identifier.UUIDString, name);
+		self.owner->onPeerDiscovered(name, peripheral.identifier.UUIDString);
 	}
 }
 

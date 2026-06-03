@@ -386,8 +386,8 @@
     <span style="background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;">Future — Cloud Room</span>
   </div>
   <div class="meta">
-    <span>עדכון אחרון: 2026-06-02</span>
-    <span>שלב פעיל: Phase 1 — BleDiscovery חי בשני הצדדים (Windows WinRT + macOS CoreBluetooth); הצעד הבא הוא ה-Connection Broker (Hotspot ↔ CoreWLAN join)</span>
+    <span>עדכון אחרון: 2026-06-03</span>
+    <span>שלב פעיל: Phase 1 — BleDiscovery חי בשני הצדדים; Mac מכריז ServiceUUID+LocalName (Apple לא נותן ManufacturerData ב-advertise), Windows מכריז ManufacturerData; שני הצדדים סורקים את שתי החתימות. הצעד הבא: Connection Broker (Hotspot ↔ CoreWLAN join)</span>
   </div>
 </div>
 
@@ -1028,31 +1028,46 @@ target_link_libraries(bettersend_core <span class="kw">PRIVATE</span>
     <span class="badge" style="background:#fde68a;color:#92400e;">Phase 1</span>
   </div>
   <div class="file-desc">
-    צד ה-macOS של אותו פרוטוקול שמומש על Windows. נכתב ב-Objective-C++ (<code>.mm</code>) כדי שיוכל לדבר ישירות עם CoreBluetooth.
-    שני אובייקטים: <code>CBPeripheralManager</code> שמשדר את ה-advertisement, ו-<code>CBCentralManager</code> שסורק. שניהם מקבלים <code>dispatch_queue_t</code> משותפת כדי שכל ה-callbacks יגיעו על thread רקע אחד מסודר — תואם בדיוק את החוזה של <code>IDiscovery</code>.
+    צד ה-macOS של אותו discovery שמומש על Windows, רק שהקוד נכתב ב-Objective-C++ (<code>.mm</code>) כדי לדבר ישירות עם CoreBluetooth.
+    שני אובייקטים: <code>CBPeripheralManager</code> שמשדר Service UUID + LocalName, ו-<code>CBCentralManager</code> שסורק על אותו Service UUID. שניהם רצים על <code>dispatch_queue_t</code> serial משותפת — כל ה-callbacks מגיעים על thread רקע אחד מסודר, תואם לחוזה של <code>IDiscovery</code>.
+    הצדדים <strong>לא</strong> משדרים באותו פורמט: ב-Apple, <code>CBPeripheralManager.startAdvertising:</code> זורק בשקט כל key חוץ מ-<code>ServiceUUIDsKey</code> ו-<code>LocalNameKey</code>, אז ManufacturerData פשוט לא יוצא מהמק. כל צד מזהה את השני לפי החתימה שאליה הוא נחשף.
   </div>
 
   <div class="annotated">
     <div class="code-row highlight">
-      <div class="code-cell"><span class="kw">const</span> <span class="ty">uint8_t</span> cid[2] = {
-    (<span class="ty">uint8_t</span>)(kBleCompanyId &amp; 0xFF),
-    (<span class="ty">uint8_t</span>)((kBleCompanyId &gt;&gt; 8) &amp; 0xFF),
+      <div class="code-cell"><span class="ty">NSDictionary</span>* opts = @{
+    CBAdvertisementDataServiceUUIDsKey : @[ delegate_.serviceUuid ],
+    CBAdvertisementDataLocalNameKey    : delegate_.advertName,
 };
-[d <span class="fn">appendBytes</span>:cid <span class="fn">length</span>:2];
-[d <span class="fn">appendBytes</span>:kBleMagicBytes <span class="fn">length</span>:<span class="kw">sizeof</span>(kBleMagicBytes)];</div>
+[delegate_.peripheral <span class="fn">startAdvertising</span>:opts];</div>
       <div class="anno-cell key">
         <div>
-          <strong>למה מתחילים ב-<code>0xFF 0xFF</code>?</strong> ב-CoreBluetooth ה-key <code>CBAdvertisementDataManufacturerDataKey</code> מקבל את ה-bytes שיופיעו <em>אחרי</em> בייט סוג ה-AD. לפי תקן BLE, שני הבייטים הראשונים של "Manufacturer Specific Data" הם ה-CompanyID ב-little-endian — לכן ה-payload נפתח ב-<code>{0xFF,0xFF}</code> ואז ה-magic ואז השם. ה-Watcher של Windows מקבל בדיוק את אותו hardware-decode: <code>CompanyId=0xFFFF, Data=[magic][name]</code>. אין שני פורמטים — צד אחד פשוט נכתב יותר "ידני".
+          <strong>למה לא ManufacturerData?</strong> Apple מתעדים מפורשות (<em>"peripheral devices using Core Bluetooth can only specify a subset of these types"</em>) ששני ה-keys היחידים שיוצאים אל מחוץ למכשיר הם <code>ServiceUUIDsKey</code> ו-<code>LocalNameKey</code>. גרסה קודמת של הקובץ ניסתה להשתמש ב-<code>CBAdvertisementDataManufacturerDataKey</code> ולשבץ <code>{0xFF,0xFF, magic, name}</code> — Apple קיבלה את ה-call ללא שגיאה אבל פשוט לא שידרה את ה-payload. ה-Watcher של נתנאל ב-Windows ראה אלפי advertisements בשנייה, אבל אף לא אחד עם <code>CompanyId=0xFFFF</code>.
         </div>
       </div>
     </div>
-    <div class="code-row">
-      <div class="code-cell"><span class="kw">if</span> (p[0] != (kBleCompanyId &amp; 0xFF)) <span class="kw">return</span> {};
-<span class="kw">if</span> (p[1] != ((kBleCompanyId &gt;&gt; 8) &amp; 0xFF)) <span class="kw">return</span> {};
-<span class="kw">for</span> (<span class="kw">size_t</span> i = 0; i &lt; <span class="kw">sizeof</span>(kBleMagicBytes); ++i)
-    <span class="kw">if</span> (p[2 + i] != kBleMagicBytes[i]) <span class="kw">return</span> {};</div>
+    <div class="code-row highlight">
+      <div class="code-cell"><span class="ty">NSDictionary</span>* opts = @{ CBCentralManagerScanOptionAllowDuplicatesKey : @NO };
+[delegate_.central <span class="fn">scanForPeripheralsWithServices</span>:@[ delegate_.serviceUuid ]
+                                          <span class="fn">options</span>:opts];</div>
       <div class="anno-cell info">
-        בצד macOS אין hardware filter על manufacturer data (CoreBluetooth מציע סינון רק ברמת Service UUID), אז מסננים בקוד. ה-CPU cost מינורי כי מהקצב המכסימלי של BLE advertising (~10/sec) הסינון הזה זניח.
+        מעבירים את ה-Service UUID ל-<code>scanForPeripheralsWithServices:</code> — זה filter ברמת Bluetooth controller, אז ה-callback מקבל רק peers שמכריזים על אותו UUID. צד ה-Windows מכריז את אותו UUID לצד ה-ManufacturerData שלו, אז ה-Mac קולט אותו דרך המסלול הזה.
+      </div>
+    </div>
+    <div class="code-row">
+      <div class="code-cell"><span class="ty">NSString</span>* localName = advertisementData[CBAdvertisementDataLocalNameKey];
+<span class="kw">if</span> (localName.length == 0) localName = peripheral.name;</div>
+      <div class="anno-cell info">
+        ה-LocalName יכול להגיע ב-advertisement payload או ב-scan response — CoreBluetooth מאחד את שני המקורות תחת המפתח הזה. אם בכל זאת ריק, נופלים ל-<code>peripheral.name</code> ש-CoreBluetooth מגדיר מה-GAP discovery.
+      </div>
+    </div>
+    <div class="code-row highlight">
+      <div class="code-cell"><span class="kw">std::lock_guard</span> lock(seenMu_);
+<span class="kw">if</span> (!seen_.<span class="fn">insert</span>(peerName).second) <span class="kw">return</span>;</div>
+      <div class="anno-cell key">
+        <div>
+          <strong>Dedup לפי <em>שם</em>, לא לפי UUID</strong>. Windows מסובב את ה-BLE MAC שלו אחרי restart, ו-<code>CBPeripheral.identifier.UUIDString</code> ב-CoreBluetooth נגזר מאותה כתובת — אז אחרי כל restart של ה-peer היינו רואים אותו כאילו הוא מכשיר חדש, וה-UI היה ממלא ב-3+ עותקים. השם של המכשיר נשאר יציב לאורך session, ומספיק כקריטריון dedup לשלב הזה.
+        </div>
       </div>
     </div>
     <div class="code-row highlight">
@@ -1060,7 +1075,7 @@ target_link_libraries(bettersend_core <span class="kw">PRIVATE</span>
     <span class="fn">initWithDelegate</span>:delegate_ <span class="fn">queue</span>:queue_];</div>
       <div class="anno-cell key">
         <div>
-          <strong>אסור לקרוא ל-<code>startAdvertising:</code> מיד אחרי <code>alloc</code></strong>. ה-manager מתחיל ב-state <code>Unknown</code> ועובר ל-<code>PoweredOn</code> רק אחרי שה-Bluetooth daemon ענה. הקוד שומר את ה-payload + flag <code>wantAdvertise</code>, וב-<code>peripheralManagerDidUpdateState:</code> כשמגיעים ל-<code>PoweredOn</code> נקרא ל-<code>kickAdvertise()</code>. אותו דפוס בדיוק ל-<code>CBCentralManager</code>.
+          <strong>אסור לקרוא ל-<code>startAdvertising:</code> מיד אחרי <code>alloc</code></strong>. ה-manager מתחיל ב-state <code>Unknown</code> ועובר ל-<code>PoweredOn</code> רק אחרי שה-Bluetooth daemon ענה. הקוד שומר את השם + flag <code>wantAdvertise</code>, וב-<code>peripheralManagerDidUpdateState:</code> כשמגיעים ל-<code>PoweredOn</code> נקרא ל-<code>kickAdvertise()</code>. אותו דפוס בדיוק ל-<code>CBCentralManager</code>.
         </div>
       </div>
     </div>
@@ -1082,12 +1097,6 @@ target_link_libraries(bettersend_core <span class="kw">PRIVATE</span>
         <div>
           <strong>הרשאות חובה ב-macOS</strong>. בלי <code>NSBluetoothAlwaysUsageDescription</code> ב-<code>Info.plist</code> ה-OS דוחה את הבקשה והמצב נשאר <code>Unauthorized</code>. בלי <code>com.apple.security.device.bluetooth</code> ב-entitlements ה-sandbox חוסם את הגישה. בריצה הראשונה משתמש רואה דיאלוג מערכת — חייב לאשר.
         </div>
-      </div>
-    </div>
-    <div class="code-row">
-      <div class="code-cell"><span class="fn">onFound_</span>(<span class="ty">Device</span>{peerName, <span class="kw">std::string</span>(<span class="st">"ble:"</span>) + idStr, kDefaultPort});</div>
-      <div class="anno-cell info">
-        ה-<code>idStr</code> הוא <code>CBPeripheral.identifier.UUIDString</code> — מזהה יציב per-system ש-Apple מספקת במקום כתובת ה-MAC (שהיא מוסתרת מאז Catalina). מספיק לדאוג ל-dedupe בצד macOS, ובהמשך לכמיהה לכתובת IP אמיתית אחרי שה-Connection Broker יקים את ה-hotspot.
       </div>
     </div>
     <div class="code-row highlight">
