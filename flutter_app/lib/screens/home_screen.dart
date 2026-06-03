@@ -145,11 +145,19 @@ class _DeviceCard extends StatelessWidget {
 	final VoidCallback onSend;
 	const _DeviceCard({required this.device, required this.onSend});
 
+	IconData _iconFor(DeviceKind kind) {
+		switch (kind) {
+			case DeviceKind.desktop: return Icons.computer;
+			case DeviceKind.mobile:  return Icons.phone_android;
+			case DeviceKind.unknown: return Icons.devices_other;
+		}
+	}
+
 	@override
 	Widget build(BuildContext context) {
 		return Card(
 			child: ListTile(
-				leading: const Icon(Icons.phone_android, size: 36),
+				leading: Icon(_iconFor(device.kind), size: 36),
 				title: Text(device.name,
 					style: const TextStyle(fontWeight: FontWeight.bold)),
 				subtitle: Text('${device.ip}:${device.port}',

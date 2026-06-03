@@ -114,11 +114,33 @@ class BetterSendBridge {
 
 // ── Data classes ──────────────────────────────────────────────────────────────
 
+enum DeviceKind { desktop, mobile, unknown }
+
 class DiscoveredDevice {
 	final String name;
 	final String ip;
 	final int    port;
 	const DiscoveredDevice({required this.name, required this.ip, required this.port});
+
+	// Phase 1 has no on-the-wire device-type field yet (the advertisement
+	// budget is tight enough as is). Until BleDiscovery encodes a type byte
+	// we infer from the human name — Mac and Windows desktops fall through
+	// to desktop; iPhone / iPad / Pixel / Galaxy etc. light up mobile.
+	DeviceKind get kind {
+		final n = name.toLowerCase();
+		if (n.contains('iphone')   ||
+		    n.contains('ipad')     ||
+		    n.contains('android')  ||
+		    n.contains('pixel')    ||
+		    n.contains('galaxy')   ||
+		    n.contains('xiaomi')   ||
+		    n.contains('oneplus')) {
+			return DeviceKind.mobile;
+		}
+		// Phase 1 peers are all Mac/Windows desktops, so default there.
+		// "Mac-XX:XX:..." fallback names from BleDiscovery_Windows also hit this.
+		return DeviceKind.desktop;
+	}
 }
 
 class ReceivedTransfer {
