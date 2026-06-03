@@ -5,6 +5,13 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Emit build/compile_commands.json so IDE language servers (VSCode C/C++,
+# clangd) see the same include paths and defines that the actual build uses.
+# Without this, `#include <winrt/...>` shows red under MinGW even though the
+# real build links cleanly — the IDE simply can't find the SDK headers on
+# its own.
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # ── TLS CA bundle auto-detect (Windows) ──────────────────────────────────────
 # winlibs-bundled cmake ships without trust anchors, so FetchContent over HTTPS
 # fails with "certificate signer not trusted". Auto-pick a CA bundle from a
