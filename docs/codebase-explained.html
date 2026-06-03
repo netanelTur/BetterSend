@@ -344,6 +344,7 @@
     <a href="#texttransferable">TextTransferable.h <span class="tag tag-cpp">C++</span></a>
     <a href="#mdnsdiscovery">BonjourDiscovery.cpp (Apple) / MdnsDiscovery.cpp (Linux) <span class="tag tag-cpp">C++</span></a>
     <a href="#blediscovery">BleDiscovery_Windows.cpp <span class="tag tag-cpp">C++</span></a>
+    <a href="#blediscovery-mac">BleDiscovery_Mac.mm <span class="tag tag-cpp">C++</span></a>
     <a href="#tcptransport">TcpTransport.cpp <span class="tag tag-cpp">C++</span></a>
     <a href="#transferprotocol">TransferProtocol.cpp <span class="tag tag-cpp">C++</span></a>
   </div>
@@ -386,7 +387,7 @@
   </div>
   <div class="meta">
     <span>עדכון אחרון: 2026-06-02</span>
-    <span>שלב פעיל: Phase 1 — BleDiscovery + WindowsHotspotBroker / MacWifiClientBroker (Mac ↔ Windows ללא רשת משותפת)</span>
+    <span>שלב פעיל: Phase 1 — BleDiscovery חי בשני הצדדים (Windows WinRT + macOS CoreBluetooth); הצעד הבא הוא ה-Connection Broker (Hotspot ↔ CoreWLAN join)</span>
   </div>
 </div>
 
@@ -1011,6 +1012,95 @@ target_link_libraries(bettersend_core <span class="kw">PRIVATE</span>
       <div class="anno-cell key">
         <div>
           MinGW לא נושא את ה-cppwinrt headers (הם ב-Windows SDK תחת <code>Program Files (x86)/Windows Kits/10/...</code>). ה-CMake מאתר את הגרסה הכי חדשה ב-build time. ה-link דורש <code>runtimeobject</code> (WinRT activation), <code>ole32</code> (COM), <code>oleaut32</code> (BSTR / IErrorInfo). בלעדיהם — undefined references ב-link time.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- ════════════════════════════════════════════════════════ -->
+<div class="file-section" id="blediscovery-mac">
+  <div class="file-header">
+    <h2>BleDiscovery_Mac.mm</h2>
+    <span class="badge badge-cpp">C++ / Obj-C++</span>
+    <span class="badge" style="background:#fde68a;color:#92400e;">Phase 1</span>
+  </div>
+  <div class="file-desc">
+    צד ה-macOS של אותו פרוטוקול שמומש על Windows. נכתב ב-Objective-C++ (<code>.mm</code>) כדי שיוכל לדבר ישירות עם CoreBluetooth.
+    שני אובייקטים: <code>CBPeripheralManager</code> שמשדר את ה-advertisement, ו-<code>CBCentralManager</code> שסורק. שניהם מקבלים <code>dispatch_queue_t</code> משותפת כדי שכל ה-callbacks יגיעו על thread רקע אחד מסודר — תואם בדיוק את החוזה של <code>IDiscovery</code>.
+  </div>
+
+  <div class="annotated">
+    <div class="code-row highlight">
+      <div class="code-cell"><span class="kw">const</span> <span class="ty">uint8_t</span> cid[2] = {
+    (<span class="ty">uint8_t</span>)(kBleCompanyId &amp; 0xFF),
+    (<span class="ty">uint8_t</span>)((kBleCompanyId &gt;&gt; 8) &amp; 0xFF),
+};
+[d <span class="fn">appendBytes</span>:cid <span class="fn">length</span>:2];
+[d <span class="fn">appendBytes</span>:kBleMagicBytes <span class="fn">length</span>:<span class="kw">sizeof</span>(kBleMagicBytes)];</div>
+      <div class="anno-cell key">
+        <div>
+          <strong>למה מתחילים ב-<code>0xFF 0xFF</code>?</strong> ב-CoreBluetooth ה-key <code>CBAdvertisementDataManufacturerDataKey</code> מקבל את ה-bytes שיופיעו <em>אחרי</em> בייט סוג ה-AD. לפי תקן BLE, שני הבייטים הראשונים של "Manufacturer Specific Data" הם ה-CompanyID ב-little-endian — לכן ה-payload נפתח ב-<code>{0xFF,0xFF}</code> ואז ה-magic ואז השם. ה-Watcher של Windows מקבל בדיוק את אותו hardware-decode: <code>CompanyId=0xFFFF, Data=[magic][name]</code>. אין שני פורמטים — צד אחד פשוט נכתב יותר "ידני".
+        </div>
+      </div>
+    </div>
+    <div class="code-row">
+      <div class="code-cell"><span class="kw">if</span> (p[0] != (kBleCompanyId &amp; 0xFF)) <span class="kw">return</span> {};
+<span class="kw">if</span> (p[1] != ((kBleCompanyId &gt;&gt; 8) &amp; 0xFF)) <span class="kw">return</span> {};
+<span class="kw">for</span> (<span class="kw">size_t</span> i = 0; i &lt; <span class="kw">sizeof</span>(kBleMagicBytes); ++i)
+    <span class="kw">if</span> (p[2 + i] != kBleMagicBytes[i]) <span class="kw">return</span> {};</div>
+      <div class="anno-cell info">
+        בצד macOS אין hardware filter על manufacturer data (CoreBluetooth מציע סינון רק ברמת Service UUID), אז מסננים בקוד. ה-CPU cost מינורי כי מהקצב המכסימלי של BLE advertising (~10/sec) הסינון הזה זניח.
+      </div>
+    </div>
+    <div class="code-row highlight">
+      <div class="code-cell">delegate_.peripheral = [[<span class="ty">CBPeripheralManager</span> <span class="fn">alloc</span>]
+    <span class="fn">initWithDelegate</span>:delegate_ <span class="fn">queue</span>:queue_];</div>
+      <div class="anno-cell key">
+        <div>
+          <strong>אסור לקרוא ל-<code>startAdvertising:</code> מיד אחרי <code>alloc</code></strong>. ה-manager מתחיל ב-state <code>Unknown</code> ועובר ל-<code>PoweredOn</code> רק אחרי שה-Bluetooth daemon ענה. הקוד שומר את ה-payload + flag <code>wantAdvertise</code>, וב-<code>peripheralManagerDidUpdateState:</code> כשמגיעים ל-<code>PoweredOn</code> נקרא ל-<code>kickAdvertise()</code>. אותו דפוס בדיוק ל-<code>CBCentralManager</code>.
+        </div>
+      </div>
+    </div>
+    <div class="code-row">
+      <div class="code-cell">queue_ = <span class="fn">dispatch_queue_create</span>(<span class="st">"com.bettersend.ble"</span>, DISPATCH_QUEUE_SERIAL);</div>
+      <div class="anno-cell info">
+        Serial queue ייעודית — שני ה-managers שולחים אליה את כל ה-callbacks. <code>onFound</code> מגיע ל-Dart דרך <code>NativeCallable.listener</code>, אז הוא ממילא מוסט ל-isolate הראשי; פה אנחנו רק מבטיחים שהשרשור הפנימי של CoreBluetooth לא ירוץ במקביל מעצמו.
+      </div>
+    </div>
+    <div class="code-row highlight">
+      <div class="code-cell"><span class="cm">&lt;!-- Info.plist --&gt;</span>
+&lt;key&gt;NSBluetoothAlwaysUsageDescription&lt;/key&gt;
+&lt;string&gt;BetterSend uses Bluetooth Low Energy ...&lt;/string&gt;
+
+<span class="cm">&lt;!-- *.entitlements --&gt;</span>
+&lt;key&gt;com.apple.security.device.bluetooth&lt;/key&gt;
+&lt;true/&gt;</div>
+      <div class="anno-cell key">
+        <div>
+          <strong>הרשאות חובה ב-macOS</strong>. בלי <code>NSBluetoothAlwaysUsageDescription</code> ב-<code>Info.plist</code> ה-OS דוחה את הבקשה והמצב נשאר <code>Unauthorized</code>. בלי <code>com.apple.security.device.bluetooth</code> ב-entitlements ה-sandbox חוסם את הגישה. בריצה הראשונה משתמש רואה דיאלוג מערכת — חייב לאשר.
+        </div>
+      </div>
+    </div>
+    <div class="code-row">
+      <div class="code-cell"><span class="fn">onFound_</span>(<span class="ty">Device</span>{peerName, <span class="kw">std::string</span>(<span class="st">"ble:"</span>) + idStr, kDefaultPort});</div>
+      <div class="anno-cell info">
+        ה-<code>idStr</code> הוא <code>CBPeripheral.identifier.UUIDString</code> — מזהה יציב per-system ש-Apple מספקת במקום כתובת ה-MAC (שהיא מוסתרת מאז Catalina). מספיק לדאוג ל-dedupe בצד macOS, ובהמשך לכמיהה לכתובת IP אמיתית אחרי שה-Connection Broker יקים את ה-hotspot.
+      </div>
+    </div>
+    <div class="code-row highlight">
+      <div class="code-cell"><span class="cm"># CMakeLists.txt</span>
+enable_language(OBJCXX)
+set_source_files_properties(src/BleDiscovery_Mac.mm PROPERTIES
+    COMPILE_FLAGS <span class="st">"-fobjc-arc"</span>)
+target_link_libraries(bettersend_core <span class="kw">PRIVATE</span>
+    <span class="st">"-framework Foundation"</span>
+    <span class="st">"-framework CoreBluetooth"</span>)</div>
+      <div class="anno-cell key">
+        <div>
+          ה-<code>.mm</code> נבנה תחת OBJCXX, רק עליו מופעל <code>-fobjc-arc</code>. שאר ה-<code>.cpp</code> נשארים C++ טהור. את ה-<code>BonjourDiscovery.cpp</code> השארנו ב-<code>src/</code> אבל הוצאנו מה-build — הוא יחזור כשנגיע ל-Apple↔Apple AWDL.
         </div>
       </div>
     </div>

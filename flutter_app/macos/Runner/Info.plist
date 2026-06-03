@@ -28,5 +28,7 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>BetterSend uses Bluetooth Low Energy to discover nearby devices for peer-to-peer file transfer — no Wi-Fi or account needed.</string>
 </dict>
 </plist>

@@ -2,6 +2,9 @@ cmake_minimum_required(VERSION 3.20)
 
 
 project(BetterSendCore LANGUAGES CXX)
+if(APPLE)
+	enable_language(OBJCXX)
+endif()
 set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -37,11 +40,14 @@ add_library(bettersend_core SHARED
 
 # IDiscovery impl is chosen per platform. Strategy pattern means swapping
 # the .cpp here is all it takes — every other file uses IDiscovery / makeDiscovery().
-#   Apple   → BonjourDiscovery (dns_sd.h + AWDL, sandbox-compatible)
-#   Windows → BleDiscovery (WinRT BLE advertising + scanning — Phase 1)
+#   Apple   → BleDiscovery_Mac.mm (CoreBluetooth advertise + scan — Phase 1)
+#             BonjourDiscovery.cpp stays in src/ for the future Apple↔Apple AWDL pair
+#   Windows → BleDiscovery_Windows.cpp (WinRT advertise + scan — Phase 1)
 #   Other   → MdnsDiscovery (raw mDNS via mdns.h — dev fallback / Android later)
 if(APPLE)
-    target_sources(bettersend_core PRIVATE src/BonjourDiscovery.cpp)
+    target_sources(bettersend_core PRIVATE src/BleDiscovery_Mac.mm)
+    set_source_files_properties(src/BleDiscovery_Mac.mm PROPERTIES
+        COMPILE_FLAGS "-fobjc-arc")
 elseif(WIN32)
     target_sources(bettersend_core PRIVATE src/BleDiscovery_Windows.cpp)
 else()
@@ -65,7 +71,10 @@ endif()
 
 # ── Platform-specific linking ─────────────────────────────────────────────────
 if(APPLE)
-    target_link_libraries(bettersend_core PRIVATE "-framework Foundation")
+    target_link_libraries(bettersend_core PRIVATE
+        "-framework Foundation"
+        "-framework CoreBluetooth"
+    )
 elseif(ANDROID)
     target_link_libraries(bettersend_core PRIVATE log)
 elseif(WIN32)

@@ -93,7 +93,9 @@ flutter run -d windows
 ```
 **One-time:** after the first `flutter run`, copy `bettersend_core.dll` plus the three MinGW runtime DLLs (`libgcc_s_seh-1.dll`, `libstdc++-6.dll`, `libwinpthread-1.dll`) into `flutter_app/build/windows/x64/runner/Debug/`. TODO: a post-build CMake step to automate this, matching the Xcode build phase on macOS.
 
-> **Phase 1 discovery (BLE advertise + scan) is live on Windows.** Mac side (`BleDiscovery_Mac.mm`, CoreBluetooth) and the post-discovery connection broker (Mobile Hotspot ↔ CoreWLAN join) are the next pieces. Until the broker lands, peers found via BLE expose `Device.ip = "ble:<addr>"` as a placeholder — no actual file transfer yet.
+> **Phase 1 discovery (BLE advertise + scan) is live on both sides** — `BleDiscovery_Windows.cpp` (WinRT) and `BleDiscovery_Mac.mm` (CoreBluetooth). The next piece is the post-discovery connection broker (Windows Mobile Hotspot ↔ macOS CoreWLAN auto-join). Until the broker lands, peers found via BLE expose `Device.ip = "ble:<addr>"` / `"ble:<uuid>"` as a placeholder — no actual file transfer yet.
+>
+> macOS requires Bluetooth permission. `Info.plist` carries `NSBluetoothAlwaysUsageDescription`; both entitlements files declare `com.apple.security.device.bluetooth`. First run will prompt the user — approve the dialog or scanning silently returns no peers.
 
 ## Project structure
 
@@ -110,6 +112,7 @@ BetterSend/
 │   │   ├── BonjourDiscovery.cpp   # Apple only: dns_sd.h + AWDL (Apple-pair, later)
 │   │   ├── MdnsDiscovery.cpp      # Linux/Android: raw mDNS (dev fallback)
 │   │   ├── BleDiscovery_Windows.cpp  # Phase 1 Windows side: WinRT BLE advertise + scan
+│   │   ├── BleDiscovery_Mac.mm       # Phase 1 macOS side: CoreBluetooth advertise + scan
 │   │   ├── TcpTransport.cpp
 │   │   ├── TransferProtocol.cpp
 │   │   └── bettersend_api.cpp     # extern "C" Facade for Flutter FFI
