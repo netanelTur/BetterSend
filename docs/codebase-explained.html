@@ -343,8 +343,9 @@
     <a href="#filetransferable">FileTransferable.h <span class="tag tag-cpp">C++</span></a>
     <a href="#texttransferable">TextTransferable.h <span class="tag tag-cpp">C++</span></a>
     <a href="#mdnsdiscovery">BonjourDiscovery.cpp (Apple) / MdnsDiscovery.cpp (Linux) <span class="tag tag-cpp">C++</span></a>
+    <a href="#ble-background">🛰️ רקע BLE</a>
     <a href="#blediscovery">BleDiscovery_Windows.cpp <span class="tag tag-cpp">C++</span></a>
-    <a href="#blediscovery-mac">BleDiscovery_Mac.mm <span class="tag tag-cpp">C++</span></a>
+    <a href="#blediscovery-mac">BleDiscovery_Mac.mm <span class="tag tag-cpp">Obj-C++</span></a>
     <a href="#tcptransport">TcpTransport.cpp <span class="tag tag-cpp">C++</span></a>
     <a href="#transferprotocol">TransferProtocol.cpp <span class="tag tag-cpp">C++</span></a>
   </div>
@@ -957,6 +958,88 @@
 <hr class="divider">
 
 <!-- ════════════════════════════════════════════════════════ -->
+<div class="file-section" id="ble-background">
+  <div class="file-header">
+    <h2>🛰️ רקע — איך BLE Advertising עובד</h2>
+    <span class="badge" style="background:#fde68a;color:#92400e;">Phase 1</span>
+  </div>
+  <div class="file-desc">
+    שני המימושים של <a href="#idiscovery">IDiscovery</a> בPhase 1 (BleDiscovery_Windows + BleDiscovery_Mac) בנויים מעל מספר מושגים של Bluetooth Low Energy. הסיכום הזה מסביר את הבסיס בצורה פשוטה כדי שיהיה יותר נוח לקרוא את הקבצים בהמשך.
+    <br><br>
+    <strong>מקורות לעומק:</strong>
+    <ul style="margin-top:8px;padding-right:24px;line-height:1.7;">
+      <li><a href="https://learn.microsoft.com/en-us/windows/uwp/devices-sensors/bluetooth-low-energy-overview" target="_blank">Microsoft Learn — BLE Overview</a> (Windows / WinRT)</li>
+      <li><a href="https://developer.apple.com/library/archive/documentation/NetworkingInternetWeb/Conceptual/CoreBluetooth_concepts/CoreBluetoothOverview/CoreBluetoothOverview.html" target="_blank">Apple — CoreBluetooth Programming Guide</a></li>
+      <li><a href="https://www.bluetooth.com/specifications/specs/core-specification-amended/" target="_blank">Bluetooth Core Specification</a> (המקור הרשמי, ~3000 עמודים)</li>
+      <li><a href="https://www.silabs.com/wireless/bluetooth/resources/bluetooth-101" target="_blank">Silicon Labs — Bluetooth 101</a> (מבוא קצר וקריא)</li>
+    </ul>
+  </div>
+
+  <div class="annotated">
+    <div class="code-row">
+      <div class="code-cell"><span class="cm">Bluetooth Classic            </span>  ←  אוזניות, רמקולים, mouse — תקשורת קבועה
+<span class="cm">Bluetooth Low Energy (BLE)   </span>  ←  beacons, smart watches, BetterSend</div>
+      <div class="anno-cell info">
+        אנחנו ב-<strong>BLE</strong>. ההבדל המעשי: צריכת חשמל נמוכה משמעותית, יכולת ל-<em>"לשדר בלי חיבור"</em> (advertising mode), טווח של ~10-30 מטר. אותו chip בלוטות' תומך בשני המצבים — שונה רק האופן שבו הוא משדר.
+      </div>
+    </div>
+    <div class="code-row">
+      <div class="code-cell">┌──────────────────────────────────────────┐
+│  Primary advertisement  (31 בייטים max)  │  ←─ נשלח כל ~100-200ms
+├──────────────────────────────────────────┤
+│  Scan response   (31 בייטים max, optional)│  ←─ נשלח רק כש-scanner ביקש
+└──────────────────────────────────────────┘</div>
+      <div class="anno-cell key">
+        <div>
+          ה-<strong>"שידור"</strong> ב-BLE legacy הוא פקטה של עד 31 בייטים. אם רוצים יותר, ה-peripheral יכול לשלוח <strong>scan response</strong> — פקטה שנייה (עוד 31 בייטים) רק אחרי ש-scanner ביקש אותה. ה-scanner מבקש אם הוא ב-<em>active scan mode</em> — שולח SCAN_REQ. ב-Windows זה <code>ScanningMode::Active</code>; ב-CoreBluetooth זה default.
+          <br><br>
+          סה"כ עד ~62 בייטים בלגאסי. BLE 5.0 הוסיף <strong>extended advertisements</strong> עד 255 בייטים — תמיכה יחסית חדשה. הקוד שלנו מפעיל אותה ב-Windows (<code>AllowExtendedAdvertisements(true)</code>) ליתר ביטחון.
+        </div>
+      </div>
+    </div>
+    <div class="code-row">
+      <div class="code-cell">Advertisement data := concat of AD structures, כל אחד:
+
+  [1B length][1B AD type][data bytes]
+
+AD types שאנחנו משתמשים בהם:
+  0x01  Flags                       ← ה-OS מוסיף אוטומטית, סה"כ 3B
+  0x07  Complete 128-bit UUIDs      ← 1+1+16 = 18B לכל UUID
+  0x09  Complete Local Name (N)     ← 1+1+N    = N+2B
+  0xFF  Manufacturer Data (N)       ← 1+1+2+N  = N+4B</div>
+      <div class="anno-cell key">
+        <div>
+          כל AD section מתחיל ב-2 בייטים מטא (length + type), ואחריהם ה-payload. <strong>UUID של 128-bit לבד אוכל 18 בייטים</strong> — רוב התקציב. <strong>ManufacturerData עם CompanyID + magic + שם של 10 תווים</strong> אוכל 18 בייטים. <strong>שניהם ביחד עם Flags</strong> = 3+18+18 = 39 → <em>overflow</em>, ה-OS דוחה.
+          <br><br>
+          זו הסיבה שהקוד שלנו אסימטרי: אנחנו לא יכולים לדחוס את כל המידע (UUID + שם) לpacket אחד, אז כל פלטפורמה משתמשת במה שעובד אצלה.
+        </div>
+      </div>
+    </div>
+    <div class="code-row">
+      <div class="code-cell">  Mac  (CoreBluetooth)                Windows  (WinRT)
+  ───────────────────────             ─────────────────
+  CBPeripheralManager                 BluetoothLEAdvertisementPublisher
+  CBCentralManager                    BluetoothLEAdvertisementWatcher
+
+  startAdvertising:dict               publisher.Start()
+   ServiceUUIDsKey         ✓           ServiceUuids().Append()    ✓
+   LocalNameKey            ✓           LocalName()                ✓
+   ManufacturerDataKey     ✗  ← דחויה   ManufacturerData().Append() ✓
+                              בשקט!</div>
+      <div class="anno-cell key">
+        <div>
+          הבדל פלטפורמתי קריטי: <strong>Apple מתעלמת בשקט מ-ManufacturerData ב-advertise</strong>. ה-API מקבל בלי שגיאה, אבל הבייטים פשוט לא יוצאים מהמכשיר. ה-<a href="https://developer.apple.com/documentation/corebluetooth/cbperipheralmanager/1393252-startadvertising" target="_blank">תיעוד הרשמי של Apple</a> מציין: "<em>peripheral devices using Core Bluetooth can only specify a subset of these types</em>" — והרשימה כוללת <em>רק</em> <code>LocalNameKey</code> ו-<code>ServiceUUIDsKey</code>.
+          <br><br>
+          לכן הקידוד שלנו <strong>אסימטרי בכוונה</strong>: Mac משדר ServiceUUID + LocalName, Windows משדר ManufacturerData. שני הצדדים יודעים לקרוא <em>שתי</em> החתימות בצד ה-scan.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- ════════════════════════════════════════════════════════ -->
 <div class="file-section" id="blediscovery">
   <div class="file-header">
     <h2>BleDiscovery.h + BleDiscovery_Windows.cpp</h2>
@@ -964,9 +1047,26 @@
     <span class="badge" style="background:#fde68a;color:#92400e;">Phase 1</span>
   </div>
   <div class="file-desc">
-    Discovery של עמיתי BetterSend דרך Bluetooth Low Energy — ללא רשת משותפת, כמו שלב ה-discovery של AirDrop.
-    ה-<code>BleDiscovery.h</code> מכריז על factory יחיד (<code>makeBleDiscovery()</code>); כל פלטפורמה מספקת קובץ <code>.cpp</code>/<code>.mm</code> משלה מאחורי הממשק.
-    <code>BleDiscovery_Windows.cpp</code> מממש את צד ה-Windows עם C++/WinRT (<code>BluetoothLEAdvertisementPublisher</code> + <code>BluetoothLEAdvertisementWatcher</code>).
+    Discovery של עמיתי BetterSend מ-Windows. הקוד נכתב ב-<a href="https://learn.microsoft.com/en-us/windows/uwp/cpp-and-winrt-apis/" target="_blank">C++/WinRT</a> — projections של WinRT APIs ל-C++ מודרני. שני אובייקטים מרכזיים: <a href="https://learn.microsoft.com/en-us/uwp/api/windows.devices.bluetooth.advertisement.bluetoothleadvertisementpublisher" target="_blank"><code>BluetoothLEAdvertisementPublisher</code></a> משדר את ה-presence שלנו, ו-<a href="https://learn.microsoft.com/en-us/uwp/api/windows.devices.bluetooth.advertisement.bluetoothleadvertisementwatcher" target="_blank"><code>BluetoothLEAdvertisementWatcher</code></a> סורק אחר peers.
+    <br><br>
+    ה-<code>BleDiscovery.h</code> מכריז רק על factory יחיד <code>makeBleDiscovery()</code> — כל פלטפורמה מספקת <code>.cpp</code> משלה מאחורי הממשק (<a href="#idiscovery">IDiscovery.h</a>). שיטה זו מאפשרת להוסיף פלטפורמות חדשות (Android, iOS) בלי לגעת בקוד הקיים — OCP במלוא מובן.
+  </div>
+
+  <div class="concept">
+    <h3>🧮 חשבון התקציב — 31 בייטים בלגאסי advertisement</h3>
+    <table style="border-collapse:collapse;margin-top:10px;font-family:monospace;font-size:13px;">
+      <tr style="background:#f3f4f6;"><th style="border:1px solid #d1d5db;padding:6px 14px;text-align:right;">חבילה</th><th style="border:1px solid #d1d5db;padding:6px 14px;">משקל</th><th style="border:1px solid #d1d5db;padding:6px 14px;text-align:right;">הערה</th></tr>
+      <tr><td style="border:1px solid #d1d5db;padding:4px 14px;">AD Flags</td><td style="border:1px solid #d1d5db;padding:4px 14px;text-align:center;">3B</td><td style="border:1px solid #d1d5db;padding:4px 14px;">ה-OS מוסיף אוטומטית, אין שליטה</td></tr>
+      <tr><td style="border:1px solid #d1d5db;padding:4px 14px;">ServiceUUID 128-bit</td><td style="border:1px solid #d1d5db;padding:4px 14px;text-align:center;">18B</td><td style="border:1px solid #d1d5db;padding:4px 14px;">1 length + 1 type + 16 UUID</td></tr>
+      <tr><td style="border:1px solid #d1d5db;padding:4px 14px;">LocalName של N תווים</td><td style="border:1px solid #d1d5db;padding:4px 14px;text-align:center;">N+2B</td><td style="border:1px solid #d1d5db;padding:4px 14px;">1 length + 1 type + N name</td></tr>
+      <tr><td style="border:1px solid #d1d5db;padding:4px 14px;">ManufacturerData, payload N</td><td style="border:1px solid #d1d5db;padding:4px 14px;text-align:center;">N+4B</td><td style="border:1px solid #d1d5db;padding:4px 14px;">1 length + 1 type + 2 CompanyID + N</td></tr>
+      <tr style="background:#fef3c7;"><td style="border:1px solid #d1d5db;padding:6px 14px;"><strong>זמין למפתח</strong></td><td style="border:1px solid #d1d5db;padding:6px 14px;text-align:center;"><strong>28B</strong></td><td style="border:1px solid #d1d5db;padding:6px 14px;">31 - 3 (Flags)</td></tr>
+    </table>
+    <p style="margin-top:14px;">
+      <strong>הבחירה שלנו ב-Windows: ManufacturerData בלבד.</strong> 4B overhead + 4B magic + עד 20 תווי שם = 28B בדיוק. עומד בתקציב.
+      <br><br>
+      ניסוי ראשון של ServiceUUID 128-bit + LocalName נכשל ב-<code>HRESULT 0x80070057</code> ("The parameter is incorrect") — סך הכל היה 3 + 18 + (10+2) = 33 → overflow, ה-OS דחה את הקריאה.
+    </p>
   </div>
 
   <div class="annotated">
@@ -978,40 +1078,162 @@ adv.<span class="fn">ManufacturerData</span>().<span class="fn">Append</span>(mf
 publisher_.<span class="fn">Start</span>();</div>
       <div class="anno-cell key">
         <div>
-          <strong>למה ManufacturerData ולא LocalName + ServiceUuid?</strong> הניסיון הראשון היה לשים את ה-Service UUID במכריז ולשם את ה-LocalName — נתן HRESULT <code>0x80070057</code> "The parameter is incorrect". הסיבה: AD Flags 3B + Service UUID 128-bit 18B + LocalName 10B = 33B, יותר מ-31 הבייטים של legacy advertisement. ב-ManufacturerData הסטטיק הוא 8B + 4B magic = 12B, ונשארים 19B לשם.
+          <strong>משדרים את עצמנו לאוויר.</strong> <code>kBleCompanyId = 0xFFFF</code> זה <a href="https://www.bluetooth.com/specifications/assigned-numbers/" target="_blank">Bluetooth SIG company ID</a> שמור ל-development/internal — מותר לכולם להשתמש בו. <code>makeBetterSendPayload</code> בונה:
+          <br>
+          <code>[0xBE 0x77 0xEC 0xD0][שם UTF-8, מוקצר ל-20 תווים]</code>
+          <br>
+          4 בייטים ראשונים — "magic" שמסנן false-positives מאפליקציות אחרות שגם משתמשות ב-0xFFFF.
+          <br><br>
+          <code>publisher_.Start()</code> חוזר מיד; ה-advertise בפועל מתחיל אחרי שה-Bluetooth radio מאשר. ה-status נמסר בcallback <code>StatusChanged</code> (Waiting=1 → Started=2).
         </div>
       </div>
     </div>
+
     <div class="code-row highlight">
-      <div class="code-cell">watcher_.<span class="fn">AdvertisementFilter</span>().<span class="fn">Advertisement</span>()
-        .<span class="fn">ManufacturerData</span>().<span class="fn">Append</span>(filterMfg);</div>
+      <div class="code-cell">watcher_ = <span class="ty">BluetoothLEAdvertisementWatcher</span>();
+watcher_.<span class="fn">ScanningMode</span>(<span class="ty">BluetoothLEScanningMode</span>::Active);
+watcher_.<span class="fn">AllowExtendedAdvertisements</span>(<span class="kw">true</span>);
+
+watcher_.<span class="fn">Received</span>([<span class="kw">this</span>](<span class="kw">auto</span>&&, <span class="kw">auto const</span>& args) {
+    <span class="fn">handleReceived</span>(args);
+});
+watcher_.<span class="fn">Start</span>();</div>
       <div class="anno-cell key">
         <div>
-          <strong>Hardware-level filter</strong>: ה-watcher מקבל callback רק על packets שעוברים את הסינון של ה-Bluetooth controller. מסנן אצלנו על company ID + magic prefix — אוזניות BLE, beacons, ושאר רעש שאינו BetterSend נחסם לפני שמגיע ל-app. חיסכון משמעותי ב-callbacks ובCPU.
+          <strong>סורקים את האוויר.</strong> <code>ScanningMode::Active</code> שולח SCAN_REQ אחרי כל primary advertisement — מעודד את ה-peripheral לשלוח scan response (פקטה שנייה עם data נוסף, אם יש). <code>AllowExtendedAdvertisements(true)</code> גם פותח את BLE 5.0 extended.
+          <br><br>
+          <strong>אין filter ב-watcher.</strong> בהתחלה ניסינו לסנן ברמת חומרה לפי CompanyId + magic, אבל WinRT עושה <em>exact byte match</em> על ה-Data — ה-filter שלנו דרש <code>Data == 4 magic bytes</code>, אבל peers אמיתיים שולחים <code>magic + name</code> (12+ בייטים) → לא תאם → packets נדחו לפני שהגיעו לcallback. עכשיו הסינון ב-C++ בתוך <code>handleReceived</code>.
+          <br><br>
+          תוצאה: ה-callback נקרא <strong>הרבה</strong> (עשרות פעמים בשנייה לכל BLE peer באזור — Apple, Microsoft, Samsung וכו'), אבל הסינון בקוד מהיר.
         </div>
       </div>
     </div>
+
     <div class="code-row">
-      <div class="code-cell"><span class="kw">std::lock_guard</span> lock(seenMu_);
-<span class="kw">if</span> (!seen_.<span class="fn">insert</span>(addr).second) <span class="kw">return</span>;</div>
+      <div class="code-cell"><span class="cm">// Path 1 — Windows peer (השם מגיע בפקטה אחת)</span>
+<span class="kw">for</span> (<span class="kw">auto const</span>& md : adv.<span class="fn">ManufacturerData</span>()) {
+    <span class="kw">std::string</span> n = <span class="fn">extractPeerName</span>(md);
+    <span class="kw">if</span> (!n.<span class="fn">empty</span>()) { <span class="fn">surfaceIfNew</span>(n, addr); <span class="kw">return</span>; }
+}</div>
       <div class="anno-cell info">
-        Dedupe לפי BluetoothAddress. BLE advertising מתחדש כל ~100ms, ובלי dedupe ה-UI היה מקבל את אותו עמית עשרות פעמים בשנייה.
+        <strong>זיהוי peer של Windows.</strong> אם ה-packet מכיל ManufacturerData עם CompanyId 0xFFFF + magic נכון, שולפים את השם מהבייטים שאחרי ה-magic. הכל בפקטה אחת — אריזה אנחנו עשינו, אנחנו יודעים מה מצופה. surface ל-UI ויוצאים.
       </div>
     </div>
+
     <div class="code-row">
-      <div class="code-cell"><span class="fn">onFound_</span>(<span class="ty">Device</span>{name, <span class="kw">std::string</span>(<span class="st">"ble:"</span>) + addrStr, kDefaultPort});</div>
-      <div class="anno-cell info">
-        ה-<code>ip</code> נושא <code>"ble:&lt;addr&gt;"</code> זמנית — סמן ש-discovery זוהה אבל transport עוד לא קיים. בשלב הבא (<code>IConnectionBroker</code>), Windows מעלה Mobile Hotspot, Mac מתחבר אליו, וה-<code>ip</code> יוחלף לכתובת IPv4 אמיתית.
+      <div class="code-cell"><span class="cm">// Cache LocalName per-address — Apple מפצלת ל-primary + scan response</span>
+<span class="kw">std::string</span> localName = <span class="fn">hstringToStdString</span>(adv.<span class="fn">LocalName</span>());
+<span class="kw">if</span> (!localName.<span class="fn">empty</span>()) {
+    <span class="kw">std::lock_guard</span> lock(nameCacheMu_);
+    nameCache_[addr] = localName;
+}</div>
+      <div class="anno-cell key">
+        <div>
+          <strong>שומרים LocalName בcache לפי כתובת.</strong> Apple מפצלת את ה-advertise: ה-Service UUID יוצא בpacket הראשי, ה-LocalName יוצא בscan response (כשיש מקום). שני ה-packets מגיעים אלינו כ-<strong>שני events נפרדים</strong> עם אותה <code>BluetoothAddress</code>.
+          <br><br>
+          הcache שומר את ה-LocalName ברגע שהוא מופיע (גם בpacket בלי ServiceUuid), כדי שכשיגיע match על ServiceUuid נוכל לחבר את שני החצאים יחד.
+        </div>
       </div>
     </div>
+
+    <div class="code-row">
+      <div class="code-cell"><span class="kw">static const</span> winrt::guid kServiceGuid(kBleServiceUuid);
+<span class="kw">bool</span> hasService = <span class="kw">false</span>;
+<span class="kw">for</span> (<span class="kw">auto const</span>& uuid : adv.<span class="fn">ServiceUuids</span>()) {
+    <span class="kw">if</span> (uuid == kServiceGuid) { hasService = <span class="kw">true</span>; <span class="kw">break</span>; }
+}
+<span class="kw">if</span> (!hasService) <span class="kw">return</span>;</div>
+      <div class="anno-cell info">
+        בודקים האם ה-packet מכיל את ה-Service UUID שלנו. אם לא — זה לא BetterSend, יוצאים. רוב ה-packets שמגיעים מ-Apple peers בקרבה <em>לא</em> יכילו את ה-UUID (אלה iCloud, AirDrop, Handoff פנימיים של Apple).
+      </div>
+    </div>
+
+    <div class="code-row">
+      <div class="code-cell"><span class="cm">// פתרון השם — ניסיון 1 + 2</span>
+<span class="kw">std::string</span> name = localName;                <span class="cm">// 1. ה-packet הנוכחי</span>
+<span class="kw">if</span> (name.<span class="fn">empty</span>()) {
+    <span class="kw">std::lock_guard</span> lock(nameCacheMu_);
+    <span class="kw">auto</span> it = nameCache_.<span class="fn">find</span>(addr);
+    <span class="kw">if</span> (it != nameCache_.<span class="fn">end</span>()) name = it->second;  <span class="cm">// 2. cache מ-scan response קודם</span>
+}
+<span class="kw">if</span> (!name.<span class="fn">empty</span>()) { <span class="fn">surfaceIfNew</span>(name, addr); <span class="kw">return</span>; }</div>
+      <div class="anno-cell info">
+        קודם בודקים אם השם בpacket הנוכחי. אחרת ב-cache (אולי scan response הגיע קודם). אם משהו נתפס — surface, יוצאים.
+      </div>
+    </div>
+
     <div class="code-row highlight">
-      <div class="code-cell"><span class="cm">// CMakeLists.txt</span>
+      <div class="code-cell"><span class="cm">// ניסיון 3 — בקשה אסינכרונית ל-Windows BT system cache</span>
+<span class="kw">auto</span> op = <span class="ty">BluetoothLEDevice</span>::<span class="fn">FromBluetoothAddressAsync</span>(addr);
+op.<span class="fn">Completed</span>([<span class="kw">this</span>, addr](<span class="kw">auto</span>&& sender, <span class="ty">AsyncStatus</span> status) {
+    <span class="kw">std::string</span> resolved;
+    <span class="kw">if</span> (status == <span class="ty">AsyncStatus</span>::Completed) {
+        <span class="kw">auto</span> device = sender.<span class="fn">GetResults</span>();
+        <span class="kw">if</span> (device != <span class="kw">nullptr</span>) resolved = <span class="fn">hstringToStdString</span>(device.<span class="fn">Name</span>());
+    }
+    <span class="cm">// "Bluetooth XX:XX:..." זה placeholder של Windows למכשירים לא-מוכרים</span>
+    <span class="kw">if</span> (resolved.<span class="fn">rfind</span>(<span class="st">"Bluetooth "</span>, 0) == 0) resolved.<span class="fn">clear</span>();
+    <span class="kw">if</span> (resolved.<span class="fn">empty</span>()) resolved = <span class="kw">std::string</span>(<span class="st">"Mac-"</span>) + <span class="fn">formatBdAddr</span>(addr);
+    <span class="fn">surfaceIfNew</span>(resolved, addr);
+});</div>
+      <div class="anno-cell key">
+        <div>
+          <strong>פתרון השם — ניסיון 3 + fallback.</strong> אם גם הcache לא תפס, מבקשים מ-Windows BT system cache (<a href="https://learn.microsoft.com/en-us/uwp/api/windows.devices.bluetooth.bluetoothledevice.frombluetoothaddressasync" target="_blank">FromBluetoothAddressAsync</a>): קריאה אסינכרונית שמחזירה את ה-friendly name ש-Windows שמרה ממכשירים paired או שראתה בעבר.
+          <br><br>
+          Windows מחזירה לעתים placeholder <code>"Bluetooth XX:XX:..."</code> לBLE לא-מוכר — לא יותר אינפורמטיבי מה-MAC לבד, אז דוחים. fallback סופי: <code>Mac-AA:BB:CC:DD:EE:FF</code>.
+          <br><br>
+          <strong>השם האמיתי</strong> של ה-Mac (למשל <code>Yonatans-MacBook.local</code>) יגיע ב-Phase 1.5 דרך GATT handshake — אחרי שייפתח BLE connection אמיתי, ניתן לקרוא את <a href="https://developer.bluetooth.org/gatt/characteristics/Pages/CharacteristicViewer.aspx?u=org.bluetooth.characteristic.gap.device_name.xml" target="_blank">GAP Device Name characteristic</a> ולקבל את ה-hostname.
+        </div>
+      </div>
+    </div>
+
+    <div class="code-row highlight">
+      <div class="code-cell"><span class="kw">void</span> <span class="fn">surfaceIfNew</span>(<span class="kw">const std::string</span>& name, <span class="ty">uint64_t</span> addr) {
+    {
+        <span class="kw">std::lock_guard</span> lock(seenMu_);
+        <span class="kw">if</span> (!seenNames_.<span class="fn">insert</span>(name).second) <span class="kw">return</span>;  <span class="cm">// כבר ראינו את השם</span>
+    }
+    <span class="fn">onFound_</span>(<span class="ty">Device</span>{name, <span class="kw">std::string</span>(<span class="st">"ble:"</span>) + <span class="fn">formatBdAddr</span>(addr), kDefaultPort});
+}</div>
+      <div class="anno-cell key">
+        <div>
+          <strong>Dedup לפי שם, לא לפי MAC.</strong> BLE addresses מסתובבים לצרכי פרטיות:
+          <ul style="margin-top:6px;padding-right:24px;line-height:1.7;">
+            <li><a href="https://support.apple.com/guide/security/security-bluetooth-secfa9259f9c/web" target="_blank">Apple מסובבת את הכתובת</a> כל ~15 דקות אוטומטית</li>
+            <li>Windows publisher מקבל MAC חדש בכל restart של האפליקציה</li>
+          </ul>
+          לו היינו dedup-ים לפי MAC, אותו peer פיזי היה מופיע פעמיים-שלוש אחרי restart או אחרי השעה. השם הוא הדבר היציב לאורך session — וזה מה שאיכפת למשתמש לראות פעם אחת.
+          <br><br>
+          ה-<code>Device.ip</code> נושא <code>"ble:&lt;MAC&gt;"</code> כ-placeholder — סמן ש-discovery זוהה אבל אין IP transport עדיין. הphase הבא (<code>IConnectionBroker</code>) יחליף ל-IPv4 אמיתי מהhotspot המקומי.
+        </div>
+      </div>
+    </div>
+
+    <div class="code-row highlight">
+      <div class="code-cell"><span class="cm"># CMakeLists.txt — Windows BLE wiring</span>
 target_link_libraries(bettersend_core <span class="kw">PRIVATE</span>
     ws2_32 mswsock iphlpapi
-    runtimeobject ole32 oleaut32)</div>
+    runtimeobject ole32 oleaut32)
+
+target_compile_definitions(bettersend_core <span class="kw">PRIVATE</span>
+    WINVER=0x0A00 _WIN32_WINNT=0x0A00)
+
+<span class="cm"># cppwinrt projection headers מ-Windows SDK</span>
+file(GLOB _sdk <span class="st">"C:/Program Files (x86)/Windows Kits/10/Include/*"</span>)
+foreach(_dir ${_sdk})
+    if(IS_DIRECTORY <span class="st">"${_dir}/cppwinrt/winrt"</span>) ... endif()
+endforeach()</div>
       <div class="anno-cell key">
         <div>
-          MinGW לא נושא את ה-cppwinrt headers (הם ב-Windows SDK תחת <code>Program Files (x86)/Windows Kits/10/...</code>). ה-CMake מאתר את הגרסה הכי חדשה ב-build time. ה-link דורש <code>runtimeobject</code> (WinRT activation), <code>ole32</code> (COM), <code>oleaut32</code> (BSTR / IErrorInfo). בלעדיהם — undefined references ב-link time.
+          MinGW לא מביא את ה-cppwinrt projection headers — הם תחת <code>Program Files (x86)/Windows Kits/10/Include/</code>. ה-CMake סורק וויוצא את הגרסה הכי חדשה אוטומטית.
+          <br><br>
+          ב-link צריך:
+          <ul style="margin-top:6px;padding-right:24px;line-height:1.7;">
+            <li><code>runtimeobject</code> — WinRT activation (RoGetActivationFactory)</li>
+            <li><code>ole32</code> — COM (CoInitializeEx)</li>
+            <li><code>oleaut32</code> — BSTR, IErrorInfo (cppwinrt משתמש בהם להעברת strings ושגיאות)</li>
+          </ul>
+          <code>WINVER=0x0A00 / _WIN32_WINNT=0x0A00</code> מצהירים על Windows 10+ כמינימום — ה-BLE Advertisement APIs הוצגו ב-Windows 10 1511 (build 10586).
         </div>
       </div>
     </div>
@@ -1340,6 +1562,32 @@ target_link_libraries(bettersend_core <span class="kw">PRIVATE</span>
         </div>
       </div>
     </div>
+    <div class="code-row highlight">
+      <div class="code-cell"><span class="kw">enum</span> <span class="ty">DeviceKind</span> { desktop, mobile, unknown }
+
+<span class="kw">class</span> <span class="ty">DiscoveredDevice</span> {
+  <span class="kw">final</span> <span class="ty">String</span> name;
+  <span class="kw">final</span> <span class="ty">String</span> ip;
+  <span class="kw">final</span> <span class="kw">int</span>    port;
+  <span class="kw">const</span> <span class="ty">DiscoveredDevice</span>({<span class="kw">required</span> <span class="kw">this</span>.name, ...});
+
+  <span class="ty">DeviceKind</span> <span class="kw">get</span> kind {
+    <span class="kw">final</span> n = name.<span class="fn">toLowerCase</span>();
+    <span class="kw">if</span> (n.<span class="fn">contains</span>(<span class="st">'iphone'</span>) || n.<span class="fn">contains</span>(<span class="st">'android'</span>) ||
+        n.<span class="fn">contains</span>(<span class="st">'pixel'</span>)  || n.<span class="fn">contains</span>(<span class="st">'galaxy'</span>)) {
+      <span class="kw">return</span> <span class="ty">DeviceKind</span>.mobile;
+    }
+    <span class="kw">return</span> <span class="ty">DeviceKind</span>.desktop;  <span class="cm">// Phase 1: כל ה-peers הם Mac/Windows</span>
+  }
+}</div>
+      <div class="anno-cell key">
+        <div>
+          <strong>DeviceKind</strong> — סוג מכשיר ל-UI. ה-getter <code>kind</code> מסיק את הסוג מהשם: עברית מילים כמו "iphone" או "galaxy" → mobile, השאר (כולל <code>Mac-XX:XX:...</code> fallback) → desktop.
+          <br><br>
+          <strong>למה לפי שם?</strong> תקציב ה-31 בייטים של BLE legacy advertisement כבר מלא (Flags + ManufacturerData/ServiceUUID + שם). אין מקום ל-byte ייעודי לסוג. ב-Phase 2 (כשייכנסו iOS/Android peers דרך BLE→hotspot), נעדכן את הקידוד ב-<a href="#blediscovery">BleDiscovery</a> להכניס byte של type לתוך ה-payload — ואז ה-getter הזה יהיה <em>המקום היחיד</em> שצריך לעדכן.
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -1497,6 +1745,20 @@ target_link_libraries(bettersend_core <span class="kw">PRIVATE</span>
           מופרד ל-class עצמאי: HomeScreen נקי, _DeviceCard reusable.<br>
           כפתור send → <code>Navigator.push(TransferScreen)</code>.
         </div>
+      </div>
+    </div>
+    <div class="code-row highlight">
+      <div class="code-cell"><span class="ty">IconData</span> <span class="fn">_iconFor</span>(<span class="ty">DeviceKind</span> kind) {
+  <span class="kw">switch</span> (kind) {
+    <span class="kw">case</span> <span class="ty">DeviceKind</span>.desktop: <span class="kw">return</span> <span class="ty">Icons</span>.computer;
+    <span class="kw">case</span> <span class="ty">DeviceKind</span>.mobile:  <span class="kw">return</span> <span class="ty">Icons</span>.phone_android;
+    <span class="kw">case</span> <span class="ty">DeviceKind</span>.unknown: <span class="kw">return</span> <span class="ty">Icons</span>.devices_other;
+  }
+}
+
+leading: <span class="ty">Icon</span>(<span class="fn">_iconFor</span>(device.kind), size: <span class="nm">36</span>),</div>
+      <div class="anno-cell info">
+        <strong>בחירת האייקון לפי סוג.</strong> ה-<code>device.kind</code> getter (ב-<a href="#ffibridge">ffi_bridge.dart</a>) מסיק desktop/mobile/unknown מהשם, וכאן בוחרים את ה-Material icon המתאים. אופציה כללית <code>Icons.devices_other</code> שמורה ל-fallback של "unknown" (לא בשימוש בPhase 1 אבל יהיה בעתיד).
       </div>
     </div>
   </div>
