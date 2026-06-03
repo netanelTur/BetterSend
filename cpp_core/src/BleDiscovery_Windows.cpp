@@ -25,6 +25,7 @@
 
 #include <atomic>
 #include <mutex>
+#include <unordered_map>
 #include <unordered_set>
 #include <functional>
 #include <string>
@@ -175,48 +176,54 @@ public:
 
 private:
 	void handleReceived(const winrt_btle::BluetoothLEAdvertisementReceivedEventArgs& args) {
-		uint64_t addr   = args.BluetoothAddress();
-		auto     adv    = args.Advertisement();
+		uint64_t addr = args.BluetoothAddress();
+		auto     adv  = args.Advertisement();
 
-		std::string name;
-
-		// Path 1 — Windows peer: ManufacturerData (0xFFFF + magic + name).
-		// Native CoreBluetooth on macOS silently drops manufacturer data, so
-		// this branch fires only for other Windows BetterSend peers.
+		// Path 1 — Windows peer: ManufacturerData (0xFFFF + magic + name)
+		// arrives whole in a single packet. Surface immediately.
 		for (auto const& md : adv.ManufacturerData()) {
-			name = extractPeerName(md);
-			if (!name.empty()) break;
+			std::string n = extractPeerName(md);
+			if (!n.empty()) { surfaceIfNew(n, addr); return; }
 		}
 
-		// Path 2 — Mac peer: ServiceUuids (kBleServiceUuid) + LocalName in
-		// scan response. macOS can only advertise via CBAdvertisementData-
-		// ServiceUUIDsKey + LocalNameKey, so we match on the service GUID
-		// and read the device name out of LocalName.
+		// Path 2 — Mac peer. macOS sends the ServiceUuid in the primary
+		// advertisement and (when room allows) the LocalName in the scan
+		// response — two separate events sharing one BluetoothAddress.
+		// Cache LocalName per-address so when a ServiceUuid match arrives
+		// later we can pull the right name.
+		std::string localName = hstringToStdString(adv.LocalName());
+		if (!localName.empty()) {
+			std::lock_guard lock(nameCacheMu_);
+			nameCache_[addr] = localName;
+		}
+
+		static const winrt::guid kServiceGuid(kBleServiceUuid);
+		bool hasService = false;
+		for (auto const& uuid : adv.ServiceUuids()) {
+			if (uuid == kServiceGuid) { hasService = true; break; }
+		}
+		if (!hasService) return; // unrelated, or scan-response-only packet
+
+		std::string name = localName;
 		if (name.empty()) {
-			static const winrt::guid kServiceGuid(kBleServiceUuid);
-			for (auto const& uuid : adv.ServiceUuids()) {
-				if (uuid == kServiceGuid) {
-					name = hstringToStdString(adv.LocalName());
-					if (name.empty()) name = std::string("Mac-") + formatBdAddr(addr);
-					break;
-				}
-			}
+			std::lock_guard lock(nameCacheMu_);
+			auto it = nameCache_.find(addr);
+			if (it != nameCache_.end()) name = it->second;
 		}
+		if (name.empty()) name = std::string("Mac-") + formatBdAddr(addr);
+		surfaceIfNew(name, addr);
+	}
 
-		if (name.empty()) return; // not a BetterSend peer — ignore
-
-		// Dedupe by NAME (not address) — Apple devices rotate their BLE MAC
-		// every ~15 min for privacy, and a fresh Windows session also picks
-		// a new advertising address. Keying on name keeps a peer to a single
-		// row across address rotations.
+	void surfaceIfNew(const std::string& name, uint64_t addr) {
+		// Dedupe by name — both Apple and Windows rotate BLE addresses for
+		// privacy, so the human name is the only stable identifier across
+		// a session.
 		{
 			std::lock_guard lock(seenMu_);
 			if (!seenNames_.insert(name).second) return;
 		}
-
 		std::string addrStr = formatBdAddr(addr);
 		BS_LOG_INFO(kComponent, "Found peer: name='{}' addr={}", name, addrStr);
-
 		if (onFound_) {
 			// Phase 1 design note: ip carries the BLE address until the
 			// connection broker (WindowsHotspotBroker / MacWifiClientBroker)
@@ -232,6 +239,9 @@ private:
 	std::atomic<bool>                             scanning_{false};
 	std::mutex                                    seenMu_;
 	std::unordered_set<std::string>               seenNames_;
+
+	std::mutex                                    nameCacheMu_;
+	std::unordered_map<uint64_t, std::string>     nameCache_;
 };
 
 // ── Factory ───────────────────────────────────────────────────────────────────
