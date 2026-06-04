@@ -433,7 +433,7 @@
     <span style="background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;">Future — Cloud Room</span>
   </div>
   <div class="meta">
-    <span>עדכון אחרון: 2026-06-04 (runtime + accept/decline)</span>
+    <span>עדכון אחרון: 2026-06-04 (Phase 1 join fix — pauseAdvertise during CoreWLAN scan)</span>
     <span>שלב פעיל: Phase 1 — צינור מלא: BLE discovery → GATT handshake → Hotspot bring-up → CoreWLAN join → TCP. Control plane של request/accept/decline פעיל. המקבל מאשר/דוחה לפני העברת קובץ.</span>
   </div>
 </div>
@@ -2093,13 +2093,15 @@ emit(Device{entry.canonical, "ble:" + id, kDefaultPort});</div>
 </div>
 
 <div id="pause-scan" class="file-section">
-  <h2>BLE pauseScan / resumeScan</h2>
+  <h2>BLE pauseScan / resumeScan + pauseAdvertise / resumeAdvertise</h2>
   <div class="path">cpp_core/include/IDiscovery.h + src/BleDiscovery_Mac.mm — שחרור radio ל-CoreWLAN בזמן join</div>
   <div class="code-rows">
     <div class="code-row">
       <div class="code-cell">// IDiscovery.h — virtual default no-op
-virtual void pauseScan()  {}
-virtual void resumeScan() {}
+virtual void pauseScan()      {}
+virtual void resumeScan()     {}
+virtual void pauseAdvertise() {}
+virtual void resumeAdvertise(){}
 
 // BleDiscovery_Mac.mm
 void pauseScan() override {
@@ -2108,15 +2110,23 @@ void pauseScan() override {
 void resumeScan() override {
   if (delegate_.wantScan &amp;&amp; central.state == PoweredOn) kickScan();
 }
+void pauseAdvertise() override {
+  if (delegate_.peripheral.isAdvertising) [delegate_.peripheral stopAdvertising];
+}
+void resumeAdvertise() override {
+  if (delegate_.wantAdvertise &amp;&amp; peripheral.state == PoweredOn) kickAdvertise();
+}
 
 // bettersend_api.cpp clientHandshakeAndJoin:
-ctx.handshake-&gt;stop();        // close GATT central
-ctx.discovery-&gt;pauseScan();   // stop discovery central
-sleep(2.5s);                  // let BT stack tear down
+ctx.handshake-&gt;stop();             // close GATT central
+ctx.discovery-&gt;pauseScan();        // stop discovery central
+ctx.discovery-&gt;pauseAdvertise();   // stop CBPeripheralManager — frees radio
+sleep(2.5s);                       // let BT stack tear down
 joined = ctx.broker-&gt;joinNetwork(ssid, psk);
-ctx.discovery-&gt;resumeScan();  // resume after join</div>
+ctx.discovery-&gt;resumeScan();
+ctx.discovery-&gt;resumeAdvertise();  // peer can rediscover us</div>
       <div class="anno-cell info">
-        <strong>למה צריך:</strong> Mac BT ו-Wi-Fi חולקים אנטנה אחת בסיליקון של Apple. כשה-CBCentralManager של discovery + handshake שניהם סורקים, <code>CWInterface scanForNetworksWithName:</code> מחזיר <code>"Resource busy"</code>. ה-pause מסלק את ה-BT scan מהאוויר; ה-advertise נשאר חי כך שהpeer ימשיך לראות אותנו. ברוקר resume אחרי join (success או failure) — שאר ה-session ממשיך בצורה רגילה.
+        <strong>למה צריך:</strong> Mac BT ו-Wi-Fi חולקים אנטנה אחת בסיליקון של Apple. <em>כל</em> פעילות BLE פעילה — central scan, central connect, וגם <code>CBPeripheralManager</code> שמשדר advertise — מספיקה כדי לתפוס את הרדיו. כשרק ה-scan נעצר אבל ה-advertise ממשיך, <code>CWInterface scanForNetworksWithName:</code> מחזיר <code>"Resource busy"</code> ב-6 הניסיונות עד שמוותרים. הוכח בריצה משולבת 2026-06-04 17:05 (Mac+Windows): GATT read הצליח (80 bytes), אבל כל scan נכשל. הוספת pauseAdvertise/resumeAdvertise תיקנה את זה. ה-advertise חוזר אחרי join (גם בכישלון), כך שה-peer יראה אותנו ב-session הבא.
       </div>
     </div>
   </div>

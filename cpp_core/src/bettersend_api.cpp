@@ -184,18 +184,21 @@ void clientHandshakeAndJoin(BetterSendContext& ctx, const Device& peer) {
 		}
 
 		// Release the BLE radio before asking CoreWLAN to scan. Mac BT and
-		// Wi-Fi share antenna time on Apple silicon; both the GATT handshake
-		// central and the discovery central keep the radio busy enough that
-		// CoreWLAN's `scanForNetworksWithName:` fails with "Resource busy".
-		// We stop the handshake stack AND pause the discovery scan so the BT
-		// stack tears down before the join begins. Advertising stays up so
-		// the peer can still find us.
+		// Wi-Fi share one antenna on Apple silicon; ANY active BLE role —
+		// handshake central, discovery central, OR the peripheral advertise —
+		// is enough to pin CoreWLAN's `scanForNetworksWithName:` on
+		// "Resource busy" until it gives up. We stop the handshake stack and
+		// pause BOTH the discovery scan AND the peripheral advertise so the
+		// BT stack fully tears down before the join begins. Advertising
+		// resumes after Hello so the peer can rediscover us next session.
 		ctx.handshake->stop();
 		ctx.discovery->pauseScan();
+		ctx.discovery->pauseAdvertise();
 		std::this_thread::sleep_for(std::chrono::milliseconds(2500));
 
 		const bool joined = ctx.broker->joinNetwork(ssid, psk);
 		ctx.discovery->resumeScan();
+		ctx.discovery->resumeAdvertise();
 		if (!joined) {
 			BS_LOG_ERROR(kApiComponent, "joinNetwork('{}') failed", ssid);
 			return;

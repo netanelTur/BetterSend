@@ -157,6 +157,25 @@ public:
 		}
 	}
 
+	void pauseAdvertise() override {
+		@autoreleasepool {
+			if (delegate_.peripheral && delegate_.peripheral.isAdvertising) {
+				[delegate_.peripheral stopAdvertising];
+				BS_LOG_DEBUG(kComponent, "Advertise paused (Wi-Fi handoff)");
+			}
+		}
+	}
+
+	void resumeAdvertise() override {
+		@autoreleasepool {
+			if (delegate_.wantAdvertise && delegate_.peripheral &&
+			    delegate_.peripheral.state == CBManagerStatePoweredOn) {
+				kickAdvertise();
+				BS_LOG_DEBUG(kComponent, "Advertise resumed");
+			}
+		}
+	}
+
 	void stop() override {
 		if (advertising_.exchange(false)) {
 			@autoreleasepool {

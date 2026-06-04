@@ -43,6 +43,15 @@ public:
 	// Defaults are no-ops so non-BLE backends don't have to care.
 	virtual void pauseScan()  {}
 	virtual void resumeScan() {}
+
+	// Pause / resume the ADVERTISE side. On Apple silicon BT and Wi-Fi share
+	// one antenna; an active CBPeripheralManager advertise keeps CoreWLAN's
+	// scanForNetworksWithName: stuck on "Resource busy" indefinitely. The Mac
+	// client pauses advertising for the duration of the Wi-Fi join, then
+	// resumes so the peer can rediscover it for the next session. Defaults
+	// are no-ops so non-BLE backends don't have to care.
+	virtual void pauseAdvertise()  {}
+	virtual void resumeAdvertise() {}
 };
 
 } // namespace BetterSend
