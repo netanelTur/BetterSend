@@ -76,9 +76,11 @@ Strategy interfaces.
 | 14 | BLE GATT handshake — add a single characteristic carrying `{SSID, PSK, port}`; Windows side serves, Mac side reads | `BleDiscovery_Windows.cpp` + `BleDiscovery_Mac.mm` | todo |
 | 15 | Wire full pipeline in `bettersend_api.cpp` — `start_server`, `send_file` (discover → GATT read → broker bring-up → TCP) | `cpp_core/src/bettersend_api.cpp` | todo |
 | 16 | FFI: `startServer` + `sendFile` + `sendClipboard` callbacks | `flutter_app/lib/ffi_bridge.dart` | todo |
-| 17 | UI: file picker + send button + live progress; received-file open action | `flutter_app/lib/screens/` | todo |
-| 18 | Tests green: `test_protocol`, `test_transport` (localhost round-trip) | `cpp_core/tests/` | todo |
-| 19 | End-to-end: 10 MB photo Windows → Mac, zero shared infrastructure | manual | milestone |
+| 17 | UI: file picker + send button + accept/decline dialog + received list | `flutter_app/lib/screens/` | done |
+| 18 | Tests green: `test_protocol`, `test_transport`, `test_discovery` (localhost) | `cpp_core/tests/` | done (12/12) |
+| 19 | Runtime polish: peer prune, case-insensitive dedupe, BT/Wi-Fi pauseScan, handshake cooldown | `cpp_core/`, `flutter_app/lib/screens/` | done |
+| 20 | Control plane: request / accept / decline before file bytes are sent | `cpp_core/src/bettersend_api.cpp`, `flutter_app/lib/ffi_bridge.dart`, `home_screen.dart` | done |
+| 21 | End-to-end: 10 MB photo Windows → Mac, zero shared infrastructure | manual | milestone (pending live verification) |
 
 **Milestone:** 10 MB photo Windows → Mac → 10 MB photo back Mac → Windows.
 No router, no internet, no manual SSID setup on the receiving side.

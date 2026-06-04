@@ -95,9 +95,15 @@ flutter run -d windows
 
 > **Phase 1 end-to-end pipeline is wired**: BLE discovery (Windows + Mac) → BLE GATT credential handshake → Windows Mobile Hotspot bring-up (WinRT) → Mac CoreWLAN auto-join → TCP file transfer via Asio. Both sides run a TCP receive server on port 9000 and surface received files / clipboard via the `onReceive` FFI callback.
 >
-> macOS requires Bluetooth permission. `Info.plist` carries `NSBluetoothAlwaysUsageDescription`; both entitlements files declare `com.apple.security.device.bluetooth`. First run will prompt the user — approve the dialog or scanning silently returns no peers.
+> **Send flow is gated by user consent.** When you press Send, the sender first transmits a `Request` control message; the receiver sees an "Incoming file" dialog with `Accept` / `Decline` buttons. The actual file bytes are pushed only after the receiver accepts. Control messages ride on the existing Clipboard wire format with a `"BS\t"` JSON prefix; no protocol changes.
+>
+> **Live peer list** — `kPeerHeartbeatSec=2` and `kPeerStaleSec=10` in `Constants.h` define how the UI keeps the device list fresh: native re-emits each peer every 2s; Flutter prunes peers not seen for 10s. Both sides dedupe by case-insensitive name (Windows can advertise under both `NETANELTUR` and `NetanelTur` simultaneously; we surface a single canonical entry).
+>
+> macOS requires Bluetooth permission. `Info.plist` carries `NSBluetoothAlwaysUsageDescription`; both entitlements files declare `com.apple.security.device.bluetooth` **and** `com.apple.security.files.user-selected.read-only` (the second is needed for the file picker to actually return a usable path under the App Sandbox).
 >
 > Windows side requires an active `InternetConnectionProfile` (any adapter, online or not) for `NetworkOperatorTetheringManager` to start the hotspot. Configure the hotspot SSID + passphrase once in Windows Settings → Network → Mobile Hotspot; BetterSend reads them via WinRT and publishes via GATT.
+>
+> Mac BT and Wi-Fi share an antenna on Apple silicon. The client-side handshake (`bettersend_api.cpp clientHandshakeAndJoin`) calls `discovery->pauseScan()` before `broker->joinNetwork()` and resumes after, otherwise CoreWLAN returns `"Resource busy"` while CBCentralManager owns the radio.
 
 ## Project structure
 

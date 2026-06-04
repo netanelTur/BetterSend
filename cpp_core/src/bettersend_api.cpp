@@ -12,9 +12,11 @@
 
 #include <chrono>
 #include <cstring>
+#include <filesystem>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <system_error>
 #include <thread>
 #include <unordered_map>
 
@@ -61,6 +63,29 @@ struct PeerInfo {
 	std::chrono::steady_clock::time_point lastAttempt{};          // Mac: cooldown anchor
 };
 
+// Pending outbound transfer — sender waits for the peer's Accept/Decline
+// control reply before opening the actual File send.
+struct PendingOutgoing {
+	std::string filePath;
+	std::string peerName;
+};
+
+// Pending inbound transfer — receiver has surfaced a request to the UI and
+// waits for the user's accept/decline decision before doing anything.
+struct PendingIncoming {
+	std::string senderName;
+	std::string senderIp;
+	std::string filename;
+	std::size_t size{};
+};
+
+// Callback signatures the Flutter side may register.
+using TransferRequestCallback = void(*)(const char* transferId,
+                                        const char* senderName,
+                                        const char* filename,
+                                        long long   sizeBytes);
+using TransferDeclineCallback = void(*)(const char* transferId);
+
 struct BetterSendContext {
 	std::string                          localDeviceName;
 	std::shared_ptr<TransferProtocol>    protocol;
@@ -69,14 +94,24 @@ struct BetterSendContext {
 	std::unique_ptr<IPeerHandshake>      handshake;
 	std::unique_ptr<IConnectionBroker>   broker;
 
-	std::mutex                                    peersMu;
-	std::unordered_map<std::string, PeerInfo>     peersByName;
+	std::mutex                                          peersMu;
+	std::unordered_map<std::string, PeerInfo>           peersByName;
+
+	std::mutex                                          transfersMu;
+	std::unordered_map<std::string, PendingOutgoing>    pendingOutgoing;
+	std::unordered_map<std::string, PendingIncoming>    pendingIncoming;
+
+	TransferRequestCallback                requestCb{nullptr};
+	TransferDeclineCallback                declineCb{nullptr};
 
 	IConnectionBroker::Credentials  hostCreds;
 	bool                            isHosting{false};
 };
 
 namespace {
+
+constexpr const char* kControlPrefix = "BS\t";  // "BS" + TAB, distinct from Hello
+constexpr std::size_t kControlPrefixLen = 3;
 
 bool isHelloPayload(const std::string& body) {
 	const std::string magic(kHelloMagic, kHelloMagic + std::strlen(kHelloMagic));
@@ -87,6 +122,21 @@ bool isHelloPayload(const std::string& body) {
 std::string helloBody(const std::string& deviceName) {
 	const std::string magic(kHelloMagic, kHelloMagic + std::strlen(kHelloMagic));
 	return magic + deviceName;
+}
+
+bool isControlPayload(const std::string& body) {
+	return body.size() > kControlPrefixLen
+	    && std::memcmp(body.data(), kControlPrefix, kControlPrefixLen) == 0;
+}
+
+std::string makeControlBody(const nlohmann::json& j) {
+	return std::string(kControlPrefix) + j.dump();
+}
+
+char* heapCopy(const std::string& s) {
+	char* out = new char[s.size() + 1];
+	std::memcpy(out, s.c_str(), s.size() + 1);
+	return out;
 }
 
 #if defined(_WIN32)
@@ -133,7 +183,20 @@ void clientHandshakeAndJoin(BetterSendContext& ctx, const Device& peer) {
 			return;
 		}
 
-		if (!ctx.broker->joinNetwork(ssid, psk)) {
+		// Release the BLE radio before asking CoreWLAN to scan. Mac BT and
+		// Wi-Fi share antenna time on Apple silicon; both the GATT handshake
+		// central and the discovery central keep the radio busy enough that
+		// CoreWLAN's `scanForNetworksWithName:` fails with "Resource busy".
+		// We stop the handshake stack AND pause the discovery scan so the BT
+		// stack tears down before the join begins. Advertising stays up so
+		// the peer can still find us.
+		ctx.handshake->stop();
+		ctx.discovery->pauseScan();
+		std::this_thread::sleep_for(std::chrono::milliseconds(2500));
+
+		const bool joined = ctx.broker->joinNetwork(ssid, psk);
+		ctx.discovery->resumeScan();
+		if (!joined) {
 			BS_LOG_ERROR(kApiComponent, "joinNetwork('{}') failed", ssid);
 			return;
 		}
@@ -231,15 +294,97 @@ void bettersend_start_server(void* handle, int port,
 					return;
 				}
 
+				// Control plane: request / accept / decline are carried as a
+				// Clipboard payload prefixed with "BS\t" + JSON. Keeps the
+				// wire format unchanged; only the API layer parses it.
+				if (t.type == BetterSend::Transfer::Type::Clipboard &&
+				    BetterSend::isControlPayload(t.data)) {
+					try {
+						const auto j = nlohmann::json::parse(
+							t.data.substr(BetterSend::kControlPrefixLen));
+						const std::string kind = j.value("kind", std::string{});
+						const std::string id   = j.value("id",   std::string{});
+
+						if (kind == "request") {
+							const std::string filename = j.value("name", std::string{});
+							const std::size_t sz       = j.value("size", std::size_t{0});
+							{
+								std::lock_guard lock(ctx->transfersMu);
+								ctx->pendingIncoming[id] = BetterSend::PendingIncoming{
+									t.senderName, t.senderIp, filename, sz};
+							}
+							BS_LOG_INFO("API",
+								"Incoming request id={} from '{}' file='{}' size={}",
+								id, t.senderName, filename, sz);
+							if (ctx->requestCb) {
+								ctx->requestCb(
+									BetterSend::heapCopy(id),
+									BetterSend::heapCopy(t.senderName),
+									BetterSend::heapCopy(filename),
+									static_cast<long long>(sz));
+							}
+							return;
+						}
+
+						if (kind == "accept") {
+							std::string filePath;
+							std::string peerName;
+							{
+								std::lock_guard lock(ctx->transfersMu);
+								auto it = ctx->pendingOutgoing.find(id);
+								if (it == ctx->pendingOutgoing.end()) {
+									BS_LOG_WARN("API", "Accept for unknown id={}", id);
+									return;
+								}
+								filePath = it->second.filePath;
+								peerName = it->second.peerName;
+								ctx->pendingOutgoing.erase(it);
+							}
+							std::string ip;
+							int port2 = BetterSend::kDefaultPort;
+							{
+								std::lock_guard lock(ctx->peersMu);
+								auto pit = ctx->peersByName.find(peerName);
+								if (pit == ctx->peersByName.end() || pit->second.ip.empty()) {
+									BS_LOG_ERROR("API",
+										"Accept arrived but peer '{}' has no IP", peerName);
+									return;
+								}
+								ip    = pit->second.ip;
+								port2 = pit->second.port;
+							}
+							BS_LOG_INFO("API", "Accept id={} -> sending {} to {}:{}",
+								id, filePath, ip, port2);
+							BetterSend::FileTransferable item{filePath};
+							ctx->transport->send(ip, port2, item);
+							return;
+						}
+
+						if (kind == "decline") {
+							{
+								std::lock_guard lock(ctx->transfersMu);
+								ctx->pendingOutgoing.erase(id);
+							}
+							BS_LOG_INFO("API", "Decline id={}", id);
+							if (ctx->declineCb) {
+								ctx->declineCb(BetterSend::heapCopy(id));
+							}
+							return;
+						}
+
+						BS_LOG_WARN("API", "Unknown control kind='{}'", kind);
+					} catch (const std::exception& e) {
+						BS_LOG_ERROR("API", "Bad control payload: {}", e.what());
+					}
+					return;
+				}
+
 				if (!onReceive) return;
-				char* senderName = new char[t.senderName.size() + 1];
-				std::memcpy(senderName, t.senderName.c_str(), t.senderName.size() + 1);
-				char* name = new char[t.name.size() + 1];
-				std::memcpy(name, t.name.c_str(), t.name.size() + 1);
-				char* data = new char[t.data.size() + 1];
-				std::memcpy(data, t.data.c_str(), t.data.size() + 1);
-				const int wireType = (t.type == BetterSend::Transfer::Type::File) ? 0 : 1;
-				onReceive(wireType, senderName, name, data,
+				onReceive(
+					t.type == BetterSend::Transfer::Type::File ? 0 : 1,
+					BetterSend::heapCopy(t.senderName),
+					BetterSend::heapCopy(t.name),
+					BetterSend::heapCopy(t.data),
 					static_cast<long long>(t.sizeBytes));
 			});
 		BS_LOG_INFO("API", "Server starting on port {}", port);
@@ -321,8 +466,11 @@ void bettersend_free_cstr(const char* p) {
 	delete[] const_cast<char*>(p);
 }
 
-void bettersend_send_file(void* handle, const char* peerName, const char* filePath) {
-	if (!handle || !peerName || !filePath) return;
+// Send a Request control to peer. The actual file bytes are sent only after
+// peer responds with Accept (handled in the startServer callback).
+void bettersend_send_file(void* handle, const char* peerName,
+                          const char* filePath, const char* transferId) {
+	if (!handle || !peerName || !filePath || !transferId) return;
 	try {
 		auto* ctx = static_cast<BetterSend::BetterSendContext*>(handle);
 
@@ -341,12 +489,97 @@ void bettersend_send_file(void* handle, const char* peerName, const char* filePa
 			port = it->second.port;
 		}
 
-		BetterSend::FileTransferable item{filePath};
-		ctx->transport->send(ip, port, item);
-		BS_LOG_INFO("API", "send_file '{}' -> {} @ {}:{}", filePath, peerName, ip, port);
+		std::error_code fec;
+		const auto fsize = std::filesystem::file_size(filePath, fec);
+		if (fec) {
+			BS_LOG_ERROR("API", "send_file: stat failed for '{}': {}",
+				filePath, fec.message());
+			return;
+		}
+		const std::string filename =
+			std::filesystem::path(filePath).filename().string();
+
+		{
+			std::lock_guard lock(ctx->transfersMu);
+			ctx->pendingOutgoing[transferId] =
+				BetterSend::PendingOutgoing{filePath, peerName};
+		}
+
+		nlohmann::json j;
+		j["kind"] = "request";
+		j["id"]   = transferId;
+		j["size"] = fsize;
+		j["name"] = filename;
+		BetterSend::TextTransferable req{BetterSend::makeControlBody(j)};
+		ctx->transport->send(ip, port, req);
+		BS_LOG_INFO("API", "Request id={} '{}' ({} bytes) -> {} @ {}:{}",
+			transferId, filename, fsize, peerName, ip, port);
 	} catch (const std::exception& e) {
 		BS_LOG_ERROR("API", "bettersend_send_file failed: {}", e.what());
 	}
+}
+
+void bettersend_accept_transfer(void* handle, const char* transferId) {
+	if (!handle || !transferId) return;
+	try {
+		auto* ctx = static_cast<BetterSend::BetterSendContext*>(handle);
+		std::string senderIp;
+		{
+			std::lock_guard lock(ctx->transfersMu);
+			auto it = ctx->pendingIncoming.find(transferId);
+			if (it == ctx->pendingIncoming.end()) {
+				BS_LOG_WARN("API", "accept_transfer: unknown id={}", transferId);
+				return;
+			}
+			senderIp = it->second.senderIp;
+		}
+		nlohmann::json j;
+		j["kind"] = "accept";
+		j["id"]   = transferId;
+		BetterSend::TextTransferable ack{BetterSend::makeControlBody(j)};
+		ctx->transport->send(senderIp, BetterSend::kDefaultPort, ack);
+		BS_LOG_INFO("API", "Accept id={} -> {}", transferId, senderIp);
+	} catch (const std::exception& e) {
+		BS_LOG_ERROR("API", "bettersend_accept_transfer failed: {}", e.what());
+	}
+}
+
+void bettersend_decline_transfer(void* handle, const char* transferId) {
+	if (!handle || !transferId) return;
+	try {
+		auto* ctx = static_cast<BetterSend::BetterSendContext*>(handle);
+		std::string senderIp;
+		{
+			std::lock_guard lock(ctx->transfersMu);
+			auto it = ctx->pendingIncoming.find(transferId);
+			if (it == ctx->pendingIncoming.end()) {
+				BS_LOG_WARN("API", "decline_transfer: unknown id={}", transferId);
+				return;
+			}
+			senderIp = it->second.senderIp;
+			ctx->pendingIncoming.erase(it);
+		}
+		nlohmann::json j;
+		j["kind"] = "decline";
+		j["id"]   = transferId;
+		BetterSend::TextTransferable dec{BetterSend::makeControlBody(j)};
+		ctx->transport->send(senderIp, BetterSend::kDefaultPort, dec);
+		BS_LOG_INFO("API", "Decline id={} -> {}", transferId, senderIp);
+	} catch (const std::exception& e) {
+		BS_LOG_ERROR("API", "bettersend_decline_transfer failed: {}", e.what());
+	}
+}
+
+void bettersend_set_request_callback(void* handle,
+                                     BetterSend::TransferRequestCallback cb) {
+	if (!handle) return;
+	static_cast<BetterSend::BetterSendContext*>(handle)->requestCb = cb;
+}
+
+void bettersend_set_decline_callback(void* handle,
+                                     BetterSend::TransferDeclineCallback cb) {
+	if (!handle) return;
+	static_cast<BetterSend::BetterSendContext*>(handle)->declineCb = cb;
 }
 
 void bettersend_send_clipboard(void* handle, const char* peerName, const char* text) {

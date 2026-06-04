@@ -22,8 +22,8 @@
 #include <winrt/Windows.Storage.Streams.h>
 
 #include <algorithm>
-
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <mutex>
 #include <unordered_map>
@@ -54,6 +54,13 @@ std::string formatBdAddr(uint64_t addr) {
 
 std::string hstringToStdString(const winrt::hstring& h) {
 	return winrt::to_string(h);
+}
+
+std::string toLowerAscii(const std::string& s) {
+	std::string out;
+	out.reserve(s.size());
+	for (unsigned char c : s) out.push_back(static_cast<char>(std::tolower(c)));
+	return out;
 }
 
 // Build the ManufacturerData payload: [magic][name UTF-8], trimmed to fit.
@@ -237,48 +244,62 @@ private:
 			// Windows hands back "Bluetooth XX:XX:XX:XX:XX:XX" when it has no
 			// friendly name cached — useless to the user. Treat as empty.
 			if (resolved.rfind("Bluetooth ", 0) == 0) resolved.clear();
-			if (resolved.empty()) resolved = std::string("Mac-") + formatBdAddr(addr);
 			{
 				std::lock_guard lock(lookupMu_);
 				lookupsInFlight_.erase(addr);
 			}
-			surfaceIfNew(resolved, addr);
+			// Skip emit when we still have no real name. A synthetic
+			// "Mac-XX:XX:..." placeholder confused users (it surfaced even
+			// for peers that did advertise a LocalName, just on a later
+			// advert). Wait for the real name instead.
+			if (!resolved.empty()) {
+				surfaceIfNew(resolved, addr);
+			}
 		});
 	}
 
 	void surfaceIfNew(const std::string& name, uint64_t addr) {
-		// Throttle: BLE Received events fire many times per second per peer.
-		// We surface a peer at most once per heartbeat so the Flutter side
-		// can use the steady cadence as a liveness signal and prune peers
-		// that stop advertising (the app on the other side was closed).
+		// Throttle + canonical-name dedupe. The Apple peer can advertise
+		// the same human name under multiple advertisements (Service UUID
+		// primary + LocalName scan response, plus the Bluetooth system name
+		// in mixed case). Lowercase key collapses every case variant into a
+		// single peer entry; the first casing seen wins as the display name.
+		const std::string key = toLowerAscii(name);
 		const auto now = std::chrono::steady_clock::now();
+		std::string canonical;
 		{
 			std::lock_guard lock(seenMu_);
-			auto& last = lastEmit_[name];
-			if (last.time_since_epoch().count() != 0 &&
-			    now - last < std::chrono::seconds(kPeerHeartbeatSec)) {
+			auto& entry = throttle_[key];
+			if (entry.canonical.empty()) entry.canonical = name;
+			if (entry.lastEmit.time_since_epoch().count() != 0 &&
+			    now - entry.lastEmit < std::chrono::seconds(kPeerHeartbeatSec)) {
 				return;
 			}
-			last = now;
+			entry.lastEmit = now;
+			canonical = entry.canonical;
 		}
 		std::string addrStr = formatBdAddr(addr);
-		BS_LOG_INFO(kComponent, "Found peer: name='{}' addr={}", name, addrStr);
+		BS_LOG_INFO(kComponent, "Found peer: name='{}' addr={}", canonical, addrStr);
 		if (onFound_) {
 			// Phase 1 design note: ip carries the BLE address until the
 			// connection broker (WindowsHotspotBroker / MacWifiClientBroker)
 			// negotiates a real IP-level transport. port stays kDefaultPort.
-			onFound_(Device{name, std::string("ble:") + addrStr, kDefaultPort});
+			onFound_(Device{canonical, std::string("ble:") + addrStr, kDefaultPort});
 		}
 	}
 
-	winrt_btle::BluetoothLEAdvertisementPublisher publisher_{nullptr};
-	winrt_btle::BluetoothLEAdvertisementWatcher   watcher_{nullptr};
-	std::function<void(Device)>                   onFound_;
-	std::atomic<bool>                             advertising_{false};
-	std::atomic<bool>                             scanning_{false};
-	std::mutex                                    seenMu_;
-	std::unordered_map<std::string, std::chrono::steady_clock::time_point>
-	                                              lastEmit_;
+	struct ThrottleEntry {
+		std::chrono::steady_clock::time_point lastEmit;
+		std::string                           canonical;
+	};
+
+	winrt_btle::BluetoothLEAdvertisementPublisher  publisher_{nullptr};
+	winrt_btle::BluetoothLEAdvertisementWatcher    watcher_{nullptr};
+	std::function<void(Device)>                    onFound_;
+	std::atomic<bool>                              advertising_{false};
+	std::atomic<bool>                              scanning_{false};
+	std::mutex                                     seenMu_;
+	std::unordered_map<std::string, ThrottleEntry> throttle_;
 
 	std::mutex                                    nameCacheMu_;
 	std::unordered_map<uint64_t, std::string>     nameCache_;

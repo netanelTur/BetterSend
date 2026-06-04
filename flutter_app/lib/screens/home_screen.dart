@@ -2,10 +2,8 @@ import 'dart:async';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:path/path.dart' as p;
 
 import '../ffi_bridge.dart';
-import 'transfer_screen.dart';
 
 // Liveness windows — keep in sync with cpp_core/include/Constants.h.
 const Duration _kPeerHeartbeat = Duration(seconds: 2);
@@ -41,6 +39,8 @@ class _HomeScreenState extends State<HomeScreen> {
 				_showReceivedSnack(t);
 			}
 		});
+		widget.bridge.onIncomingRequest(_handleIncomingRequest);
+		widget.bridge.onTransferDeclined(_handleDeclined);
 		widget.bridge.startAdvertising(9000);
 		widget.bridge.startDiscovery(onFound: (d) {
 			setState(() {
@@ -49,6 +49,60 @@ class _HomeScreenState extends State<HomeScreen> {
 			});
 		});
 		_pruner = Timer.periodic(_kPeerHeartbeat, _prune);
+	}
+
+	void _handleIncomingRequest(IncomingRequest req) {
+		if (!mounted) return;
+		showDialog<void>(
+			context: context,
+			barrierDismissible: false,
+			builder: (ctx) => AlertDialog(
+				title: const Text('Incoming file'),
+				content: Column(
+					mainAxisSize: MainAxisSize.min,
+					crossAxisAlignment: CrossAxisAlignment.start,
+					children: [
+						Text('${req.senderName} wants to send you:',
+							style: const TextStyle(color: Colors.grey)),
+						const SizedBox(height: 8),
+						Text(req.filename,
+							style: const TextStyle(fontWeight: FontWeight.bold)),
+						Text(_fmtBytes(req.sizeBytes),
+							style: const TextStyle(color: Colors.grey, fontSize: 12)),
+					],
+				),
+				actions: [
+					TextButton(
+						onPressed: () {
+							widget.bridge.declineTransfer(req.transferId);
+							Navigator.pop(ctx);
+						},
+						child: const Text('Decline'),
+					),
+					ElevatedButton(
+						onPressed: () {
+							widget.bridge.acceptTransfer(req.transferId);
+							Navigator.pop(ctx);
+						},
+						child: const Text('Accept'),
+					),
+				],
+			),
+		);
+	}
+
+	void _handleDeclined(String transferId) {
+		if (!mounted) return;
+		ScaffoldMessenger.of(context).showSnackBar(
+			const SnackBar(content: Text('Peer declined the transfer.')),
+		);
+	}
+
+	static String _fmtBytes(int bytes) {
+		if (bytes < 1024) return '$bytes B';
+		if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+		if (bytes < 1024 * 1024 * 1024) return '${(bytes / 1024 / 1024).toStringAsFixed(1)} MB';
+		return '${(bytes / 1024 / 1024 / 1024).toStringAsFixed(2)} GB';
 	}
 
 	void _prune(Timer _) {
@@ -89,12 +143,9 @@ class _HomeScreenState extends State<HomeScreen> {
 		widget.bridge.sendFile(device, path);
 		if (!mounted) return;
 
-		await Navigator.push(context, MaterialPageRoute(
-			builder: (_) => TransferScreen(
-				device:   device,
-				fileName: p.basename(path),
-			),
-		));
+		ScaffoldMessenger.of(context).showSnackBar(
+			SnackBar(content: Text('Request sent to ${device.name}; waiting for accept...')),
+		);
 	}
 
 	@override
@@ -109,9 +160,11 @@ class _HomeScreenState extends State<HomeScreen> {
 						// ── Nearby devices ─────────────────────────────────────────
 						Row(
 							children: [
-								const Text('Nearby Devices',
-									style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-								const Spacer(),
+								const Expanded(
+									child: Text('Nearby Devices',
+										style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+										overflow: TextOverflow.ellipsis),
+								),
 								if (_devices.isEmpty)
 									const SizedBox(
 										width: 16, height: 16,

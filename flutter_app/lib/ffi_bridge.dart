@@ -1,5 +1,6 @@
 import 'dart:ffi';
 import 'dart:io';
+import 'dart:math';
 import 'package:ffi/ffi.dart';
 
 // ── ffi_bridge.dart ───────────────────────────────────────────────────────────
@@ -48,11 +49,32 @@ typedef _NativeStartServer = Void Function(
 typedef _DartStartServer   = void Function(
 	Pointer<Void>, int, Pointer<NativeFunction<NativeTransferRecvCb>>);
 
-typedef _NativeSendFile = Void Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>);
-typedef _DartSendFile   = void Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>);
+typedef _NativeSendFile = Void Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>);
+typedef _DartSendFile   = void Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>);
 
 typedef _NativeSendClip = Void Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>);
 typedef _DartSendClip   = void Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>);
+
+typedef _NativeAcceptTransfer  = Void Function(Pointer<Void>, Pointer<Utf8>);
+typedef _DartAcceptTransfer    = void Function(Pointer<Void>, Pointer<Utf8>);
+typedef _NativeDeclineTransfer = Void Function(Pointer<Void>, Pointer<Utf8>);
+typedef _DartDeclineTransfer   = void Function(Pointer<Void>, Pointer<Utf8>);
+
+// C callback: void(*)(const char* transferId, const char* senderName,
+//                     const char* filename, long long size)
+typedef NativeTransferReqCb = Void Function(
+	Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>, Int64);
+typedef _NativeSetReqCb = Void Function(
+	Pointer<Void>, Pointer<NativeFunction<NativeTransferReqCb>>);
+typedef _DartSetReqCb   = void Function(
+	Pointer<Void>, Pointer<NativeFunction<NativeTransferReqCb>>);
+
+// C callback: void(*)(const char* transferId)
+typedef NativeTransferDeclineCb = Void Function(Pointer<Utf8>);
+typedef _NativeSetDeclineCb = Void Function(
+	Pointer<Void>, Pointer<NativeFunction<NativeTransferDeclineCb>>);
+typedef _DartSetDeclineCb   = void Function(
+	Pointer<Void>, Pointer<NativeFunction<NativeTransferDeclineCb>>);
 
 typedef _NativeFreeCstr = Void Function(Pointer<Utf8>);
 typedef _DartFreeCstr   = void Function(Pointer<Utf8>);
@@ -66,19 +88,33 @@ final _startDiscovery   = _lib.lookupFunction<_NativeStartDisc,   _DartStartDisc
 final _startServerN     = _lib.lookupFunction<_NativeStartServer, _DartStartServer>('bettersend_start_server');
 final _sendFile         = _lib.lookupFunction<_NativeSendFile,    _DartSendFile>   ('bettersend_send_file');
 final _sendClipboard    = _lib.lookupFunction<_NativeSendClip,    _DartSendClip>   ('bettersend_send_clipboard');
-final _freeCstr         = _lib.lookupFunction<_NativeFreeCstr,    _DartFreeCstr>   ('bettersend_free_cstr');
+final _acceptTransfer   = _lib.lookupFunction<_NativeAcceptTransfer,  _DartAcceptTransfer>  ('bettersend_accept_transfer');
+final _declineTransfer  = _lib.lookupFunction<_NativeDeclineTransfer, _DartDeclineTransfer> ('bettersend_decline_transfer');
+final _setReqCb         = _lib.lookupFunction<_NativeSetReqCb,        _DartSetReqCb>        ('bettersend_set_request_callback');
+final _setDeclineCb     = _lib.lookupFunction<_NativeSetDeclineCb,    _DartSetDeclineCb>    ('bettersend_set_decline_callback');
+final _freeCstr         = _lib.lookupFunction<_NativeFreeCstr,        _DartFreeCstr>        ('bettersend_free_cstr');
 
 // ── 4. BetterSendBridge ───────────────────────────────────────────────────────
 
 class BetterSendBridge {
 	late final Pointer<Void> _handle;
-	NativeCallable<NativeDeviceFoundCb>?   _discoveryCb;
-	NativeCallable<NativeTransferRecvCb>?  _transferCb;
+	NativeCallable<NativeDeviceFoundCb>?      _discoveryCb;
+	NativeCallable<NativeTransferRecvCb>?     _transferCb;
+	NativeCallable<NativeTransferReqCb>?      _requestCb;
+	NativeCallable<NativeTransferDeclineCb>?  _declineCb;
+
+	static final Random _rng = Random();
 
 	BetterSendBridge(String deviceName) {
 		final namePtr = deviceName.toNativeUtf8();
 		_handle = _create(namePtr);
 		malloc.free(namePtr);
+	}
+
+	String _newTransferId() {
+		final ts  = DateTime.now().microsecondsSinceEpoch;
+		final rnd = _rng.nextInt(1 << 32);
+		return '$ts-${rnd.toRadixString(16)}';
 	}
 
 	/// Advertise this device via BLE so peers can find us.
@@ -129,18 +165,23 @@ class BetterSendBridge {
 		_startServerN(_handle, port, _transferCb!.nativeFunction);
 	}
 
-	/// Send the file at [filePath] to the device named [device]. The C
-	/// layer resolves [device.name] to the peer's hotspot-subnet IP that
-	/// was learned during BLE/hotspot pairing.
-	void sendFile(DiscoveredDevice device, String filePath) {
+	/// Send a Request control to [device] for the file at [filePath]. The
+	/// actual file bytes are only transmitted once the peer responds with
+	/// Accept (handled by the native control plane). Returns the transferId
+	/// the caller can use to correlate decline events.
+	String sendFile(DiscoveredDevice device, String filePath) {
+		final id = _newTransferId();
 		final namePtr = device.name.toNativeUtf8();
 		final pathPtr = filePath.toNativeUtf8();
+		final idPtr   = id.toNativeUtf8();
 		try {
-			_sendFile(_handle, namePtr, pathPtr);
+			_sendFile(_handle, namePtr, pathPtr, idPtr);
 		} finally {
 			malloc.free(namePtr);
 			malloc.free(pathPtr);
+			malloc.free(idPtr);
 		}
+		return id;
 	}
 
 	/// Send a clipboard text to [device].
@@ -155,9 +196,72 @@ class BetterSendBridge {
 		}
 	}
 
+	/// Accept an incoming transfer request previously surfaced by
+	/// [onIncomingRequest]. Sends an Accept control back; the peer then
+	/// pushes the actual file, which arrives via [startServer] onReceive.
+	void acceptTransfer(String transferId) {
+		final idPtr = transferId.toNativeUtf8();
+		try {
+			_acceptTransfer(_handle, idPtr);
+		} finally {
+			malloc.free(idPtr);
+		}
+	}
+
+	/// Decline an incoming transfer request. The peer is notified and the
+	/// sender side fires its onDeclined callback.
+	void declineTransfer(String transferId) {
+		final idPtr = transferId.toNativeUtf8();
+		try {
+			_declineTransfer(_handle, idPtr);
+		} finally {
+			malloc.free(idPtr);
+		}
+	}
+
+	/// Register the incoming-request callback. Fires when a peer sends a
+	/// Request control to this device.
+	void onIncomingRequest(void Function(IncomingRequest) cb) {
+		_requestCb?.close();
+		_requestCb = NativeCallable<NativeTransferReqCb>.listener(
+			(Pointer<Utf8> idPtr, Pointer<Utf8> senderPtr,
+			 Pointer<Utf8> namePtr, int sizeBytes) {
+				final id     = idPtr.cast<Utf8>().toDartString();
+				final sender = senderPtr.cast<Utf8>().toDartString();
+				final name   = namePtr.cast<Utf8>().toDartString();
+				_freeCstr(idPtr.cast<Utf8>());
+				_freeCstr(senderPtr.cast<Utf8>());
+				_freeCstr(namePtr.cast<Utf8>());
+				cb(IncomingRequest(
+					transferId: id,
+					senderName: sender,
+					filename:   name,
+					sizeBytes:  sizeBytes,
+				));
+			},
+		);
+		_setReqCb(_handle, _requestCb!.nativeFunction);
+	}
+
+	/// Register the outgoing-decline callback. Fires when a peer rejects a
+	/// request this device sent.
+	void onTransferDeclined(void Function(String transferId) cb) {
+		_declineCb?.close();
+		_declineCb = NativeCallable<NativeTransferDeclineCb>.listener(
+			(Pointer<Utf8> idPtr) {
+				final id = idPtr.cast<Utf8>().toDartString();
+				_freeCstr(idPtr.cast<Utf8>());
+				cb(id);
+			},
+		);
+		_setDeclineCb(_handle, _declineCb!.nativeFunction);
+	}
+
 	void dispose() {
 		_discoveryCb?.close();
 		_transferCb?.close();
+		_requestCb?.close();
+		_declineCb?.close();
 		_destroy(_handle);
 	}
 }
@@ -204,6 +308,19 @@ class ReceivedTransfer {
 		required this.senderName,
 		required this.name,
 		required this.data,
+		required this.sizeBytes,
+	});
+}
+
+class IncomingRequest {
+	final String transferId;
+	final String senderName;
+	final String filename;
+	final int    sizeBytes;
+	const IncomingRequest({
+		required this.transferId,
+		required this.senderName,
+		required this.filename,
 		required this.sizeBytes,
 	});
 }

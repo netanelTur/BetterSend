@@ -36,6 +36,13 @@ public:
 
 	// Stop both advertising and discovery; blocks until background threads exit.
 	virtual void stop() = 0;
+
+	// Pause / resume only the SCAN side (advertising stays up). Phase 1 uses
+	// these to release the radio for a CoreWLAN Wi-Fi scan on macOS, which
+	// otherwise hits "Resource busy" while CBCentralManager owns the antenna.
+	// Defaults are no-ops so non-BLE backends don't have to care.
+	virtual void pauseScan()  {}
+	virtual void resumeScan() {}
 };
 
 } // namespace BetterSend

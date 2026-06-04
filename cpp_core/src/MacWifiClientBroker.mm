@@ -42,19 +42,29 @@ NSString* toNs(const std::string& s) {
 
 CWNetwork* findNetwork(CWInterface* iface, NSString* ssid) {
 	// scanForNetworksWithName: returns matches in one pass; if the radio
-	// missed the beacon, retry up to 3 times — empirically enough on Sonoma
-	// when the hotspot just came up on the other side.
-	for (int attempt = 0; attempt < 3; ++attempt) {
+	// missed the beacon — or BT contention left the Wi-Fi scanner
+	// "Resource busy" — we back off and try again. The Windows hotspot
+	// often takes a few seconds to become visible after StartTetheringAsync
+	// returns, so a longer window helps cold starts.
+	constexpr int kAttempts        = 6;
+	constexpr int kBackoffMs       = 1500;
+	constexpr int kBusyBackoffMs   = 2500;
+	for (int attempt = 0; attempt < kAttempts; ++attempt) {
 		NSError* scanErr = nil;
 		NSSet<CWNetwork*>* found = [iface scanForNetworksWithName:ssid error:&scanErr];
 		if (scanErr) {
-			BS_LOG_WARN(kComponent, "scan attempt {} failed: {}",
-				attempt, scanErr.localizedDescription.UTF8String);
+			const char* desc = scanErr.localizedDescription.UTF8String;
+			BS_LOG_WARN(kComponent, "scan attempt {} failed: {}", attempt, desc);
+			const bool resourceBusy =
+				desc && std::string(desc).find("Resource busy") != std::string::npos;
+			std::this_thread::sleep_for(std::chrono::milliseconds(
+				resourceBusy ? kBusyBackoffMs : kBackoffMs));
+			continue;
 		}
 		for (CWNetwork* net in found) {
 			if ([net.ssid isEqualToString:ssid]) return net;
 		}
-		std::this_thread::sleep_for(std::chrono::seconds(1));
+		std::this_thread::sleep_for(std::chrono::milliseconds(kBackoffMs));
 	}
 	return nil;
 }

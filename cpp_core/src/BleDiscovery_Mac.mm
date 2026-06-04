@@ -32,7 +32,9 @@
 #include "Constants.h"
 #include "Logger.h"
 
+#include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <functional>
 #include <mutex>
@@ -71,6 +73,13 @@ static NSString* makeAdvertName(const std::string& deviceName) {
 // Recognise the Windows ManufacturerData signature:
 //   [companyId LE = 0xFF 0xFF][magic 4B][UTF-8 name...]
 // Returns the trailing name on a match, empty string otherwise.
+static std::string toLowerAscii(const std::string& s) {
+	std::string out;
+	out.reserve(s.size());
+	for (unsigned char c : s) out.push_back(static_cast<char>(std::tolower(c)));
+	return out;
+}
+
 static std::string extractWindowsPeerName(NSData* mfgData) {
 	if (!mfgData) return {};
 	const NSUInteger headLen = 2 + sizeof(kBleMagicBytes);
@@ -129,6 +138,25 @@ public:
 		}
 	}
 
+	void pauseScan() override {
+		@autoreleasepool {
+			if (delegate_.central && delegate_.central.isScanning) {
+				[delegate_.central stopScan];
+				BS_LOG_DEBUG(kComponent, "Scan paused (Wi-Fi handoff)");
+			}
+		}
+	}
+
+	void resumeScan() override {
+		@autoreleasepool {
+			if (delegate_.wantScan && delegate_.central &&
+			    delegate_.central.state == CBManagerStatePoweredOn) {
+				kickScan();
+				BS_LOG_DEBUG(kComponent, "Scan resumed");
+			}
+		}
+	}
+
 	void stop() override {
 		if (advertising_.exchange(false)) {
 			@autoreleasepool {
@@ -154,24 +182,31 @@ public:
 
 	void onPeerDiscovered(const std::string& peerName, NSString* fallbackId) {
 		if (peerName.empty()) return;
-		// Throttle: emit each peer at most once per heartbeat. BLE adverts
-		// fire 10–30 Hz; we surface a single event every kPeerHeartbeatSec
-		// so the Flutter side can use the cadence as a liveness signal and
-		// prune peers that stop advertising (Nathaniel closed his app).
+		// Throttle + canonical-name dedupe. BLE adverts fire 10–30 Hz; we
+		// surface a single event every kPeerHeartbeatSec so the Flutter side
+		// can prune dead peers. The key is lowercased so the Windows peer's
+		// two advertisements (BluetoothLEAdvertisementPublisher carrying our
+		// magic+name in UPPERCASE; GattServiceProvider carrying the system
+		// Bluetooth friendly name in mixed case) collapse to a single entry.
+		// First name seen wins as the canonical display string.
+		const std::string key = toLowerAscii(peerName);
 		const auto now = std::chrono::steady_clock::now();
+		std::string canonical;
 		{
 			std::lock_guard<std::mutex> lock(seenMu_);
-			auto& last = lastEmit_[peerName];
-			if (last.time_since_epoch().count() != 0 &&
-			    now - last < std::chrono::seconds(kPeerHeartbeatSec)) {
+			auto& entry = throttle_[key];
+			if (entry.canonical.empty()) entry.canonical = peerName;
+			if (entry.lastEmit.time_since_epoch().count() != 0 &&
+			    now - entry.lastEmit < std::chrono::seconds(kPeerHeartbeatSec)) {
 				return;
 			}
-			last = now;
+			entry.lastEmit = now;
+			canonical = entry.canonical;
 		}
-		const std::string idStr = fallbackId ? std::string(fallbackId.UTF8String) : peerName;
-		BS_LOG_INFO(kComponent, "Found peer: name='{}' id={}", peerName, idStr);
+		const std::string idStr = fallbackId ? std::string(fallbackId.UTF8String) : canonical;
+		BS_LOG_INFO(kComponent, "Found peer: name='{}' id={}", canonical, idStr);
 		if (onFound_) {
-			onFound_(Device{peerName, std::string("ble:") + idStr, kDefaultPort});
+			onFound_(Device{canonical, std::string("ble:") + idStr, kDefaultPort});
 		}
 	}
 
@@ -201,13 +236,18 @@ private:
 		[delegate_.central scanForPeripheralsWithServices:nil options:opts];
 	}
 
-	BSBleMacDelegate*                                                       delegate_{nil};
-	dispatch_queue_t                                                        queue_{nullptr};
-	std::function<void(Device)>                                             onFound_;
-	std::atomic<bool>                                                       advertising_{false};
-	std::atomic<bool>                                                       scanning_{false};
-	std::mutex                                                              seenMu_;
-	std::unordered_map<std::string, std::chrono::steady_clock::time_point>  lastEmit_;
+	struct ThrottleEntry {
+		std::chrono::steady_clock::time_point lastEmit;
+		std::string                           canonical;
+	};
+
+	BSBleMacDelegate*                                delegate_{nil};
+	dispatch_queue_t                                 queue_{nullptr};
+	std::function<void(Device)>                      onFound_;
+	std::atomic<bool>                                advertising_{false};
+	std::atomic<bool>                                scanning_{false};
+	std::mutex                                       seenMu_;
+	std::unordered_map<std::string, ThrottleEntry>   throttle_;
 };
 
 // ── Factory ───────────────────────────────────────────────────────────────────

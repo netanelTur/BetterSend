@@ -401,6 +401,16 @@
     <a href="#splash">splash_screen.dart <span class="tag tag-dart">Dart</span></a>
     <a href="#homescreen">home_screen.dart <span class="tag tag-dart">Dart</span></a>
   </div>
+
+  <div class="section">
+    <div class="section-label">Phase 1 — Runtime</div>
+    <a href="#dedupe">Throttle + Canonical-name Dedupe</a>
+    <a href="#pause-scan">BLE pauseScan / resumeScan</a>
+    <a href="#cooldown">Handshake Cooldown</a>
+    <a href="#control-plane">Control Plane — Request/Accept/Decline</a>
+    <a href="#flutter-runtime">Flutter UI — Dialog + Prune</a>
+    <a href="#entitlements-runtime">Entitlements — File Picker</a>
+  </div>
 </nav>
 
 <!-- ── Main ── -->
@@ -423,8 +433,8 @@
     <span style="background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;">Future — Cloud Room</span>
   </div>
   <div class="meta">
-    <span>עדכון אחרון: 2026-06-04</span>
-    <span>שלב פעיל: Phase 1 — BleDiscovery חי בשני הצדדים; Mac מכריז ServiceUUID+LocalName (Apple לא נותן ManufacturerData ב-advertise), Windows מכריז ManufacturerData; שני הצדדים סורקים את שתי החתימות. הצעד הבא: Connection Broker (Hotspot ↔ CoreWLAN join)</span>
+    <span>עדכון אחרון: 2026-06-04 (runtime + accept/decline)</span>
+    <span>שלב פעיל: Phase 1 — צינור מלא: BLE discovery → GATT handshake → Hotspot bring-up → CoreWLAN join → TCP. Control plane של request/accept/decline פעיל. המקבל מאשר/דוחה לפני העברת קובץ.</span>
   </div>
 </div>
 
@@ -2048,6 +2058,222 @@ _pickAndSend(device):
   → push TransferScreen(progress indicator)</div>
       <div class="anno-cell info">
         <strong>סדר הקריאות חשוב.</strong> ה-TCP server חייב להאזין לפני שה-Mac שולח Hello אל Windows — אחרת ה-host לא ילמד את ה-IP של מק. <code>file_picker</code> נוסף ל-pubspec; הוא נטיב לכל פלטפורמה. הרשימה <code>_received</code> בתחתית המסך מציגה כל קובץ שנכנס (כולל הנתיב המקומי שאליו נשמר), וגם SnackBar קצר עם שם השולח.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Phase 1 Runtime — dedupe, BT/Wi-Fi coexistence, accept/decline ──────── -->
+
+<div id="dedupe" class="file-section">
+  <h2>Throttle + Canonical-name Dedupe</h2>
+  <div class="path">cpp_core/src/BleDiscovery_{Mac.mm,Windows.cpp} — מניעת הצפת UI במכשירים זהים תחת שמות שונים</div>
+  <div class="code-rows">
+    <div class="code-row">
+      <div class="code-cell">struct ThrottleEntry {
+  steady_clock::time_point lastEmit;
+  std::string              canonical;   // first-seen casing wins
+};
+std::unordered_map&lt;std::string /*lowercase*/, ThrottleEntry&gt; throttle_;
+
+// onPeerDiscovered / surfaceIfNew:
+const std::string key = toLowerAscii(peerName);
+auto&amp; entry = throttle_[key];
+if (entry.canonical.empty()) entry.canonical = peerName;
+if (now - entry.lastEmit &lt; kPeerHeartbeatSec) return;
+entry.lastEmit = now;
+emit(Device{entry.canonical, "ble:" + id, kDefaultPort});</div>
+      <div class="anno-cell info">
+        <strong>הבעיה:</strong> Windows מכריז במקביל שתי advertisements: BluetoothLEAdvertisementPublisher (manufacturerData עם UPPERCASE hostname) + GattServiceProvider.StartAdvertising (carrying ServiceUUID + system BT friendly name ב-mixed case). שתי הדרכים יוצרות שני entries לאותה מכונה. תיקון: throttle key בlowercase קולפס את שני ה-casings ל-bucket אחד; שם canonical (first-seen) הוא מה שמוצג. שני הצדדים (Mac + Windows) מיישמים אותו דפוס.
+        <br/><br/>
+        בנוסף ב-Mac: ה-fallback ל-<code>peripheral.name</code> ב-Path A הוסר — רק <code>CBAdvertisementDataLocalNameKey</code> נחשב, מונע שאיבת שם BT classic מ-OS cache.
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="pause-scan" class="file-section">
+  <h2>BLE pauseScan / resumeScan</h2>
+  <div class="path">cpp_core/include/IDiscovery.h + src/BleDiscovery_Mac.mm — שחרור radio ל-CoreWLAN בזמן join</div>
+  <div class="code-rows">
+    <div class="code-row">
+      <div class="code-cell">// IDiscovery.h — virtual default no-op
+virtual void pauseScan()  {}
+virtual void resumeScan() {}
+
+// BleDiscovery_Mac.mm
+void pauseScan() override {
+  if (delegate_.central.isScanning) [delegate_.central stopScan];
+}
+void resumeScan() override {
+  if (delegate_.wantScan &amp;&amp; central.state == PoweredOn) kickScan();
+}
+
+// bettersend_api.cpp clientHandshakeAndJoin:
+ctx.handshake-&gt;stop();        // close GATT central
+ctx.discovery-&gt;pauseScan();   // stop discovery central
+sleep(2.5s);                  // let BT stack tear down
+joined = ctx.broker-&gt;joinNetwork(ssid, psk);
+ctx.discovery-&gt;resumeScan();  // resume after join</div>
+      <div class="anno-cell info">
+        <strong>למה צריך:</strong> Mac BT ו-Wi-Fi חולקים אנטנה אחת בסיליקון של Apple. כשה-CBCentralManager של discovery + handshake שניהם סורקים, <code>CWInterface scanForNetworksWithName:</code> מחזיר <code>"Resource busy"</code>. ה-pause מסלק את ה-BT scan מהאוויר; ה-advertise נשאר חי כך שהpeer ימשיך לראות אותנו. ברוקר resume אחרי join (success או failure) — שאר ה-session ממשיך בצורה רגילה.
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="cooldown" class="file-section">
+  <h2>Handshake Cooldown</h2>
+  <div class="path">cpp_core/src/bettersend_api.cpp + include/Constants.h — מניעת לולאה של retry על כשלון join</div>
+  <div class="code-rows">
+    <div class="code-row">
+      <div class="code-cell">// Constants.h
+inline constexpr int kPeerHeartbeatSec = 2;   // throttle per peer
+inline constexpr int kPeerStaleSec     = 10;  // prune from UI
+inline constexpr int kPeerRetrySec     = 30;  // handshake retry cooldown
+
+// PeerInfo additions
+bool                                  helloSent{false};
+bool                                  attemptInFlight{false};
+std::chrono::steady_clock::time_point lastAttempt{};
+
+// discovery callback (Mac):
+bool shouldSpawn = false;
+{ lock peersMu;
+  auto&amp; info = ctx-&gt;peersByName[d.name];
+  if (!info.helloSent &amp;&amp; !info.attemptInFlight &amp;&amp;
+      (info.lastAttempt == {} ||
+       now - info.lastAttempt &gt;= seconds(kPeerRetrySec))) {
+    info.attemptInFlight = true;
+    info.lastAttempt = now;
+    shouldSpawn = true;
+  }
+}
+if (shouldSpawn) spawnThread(clientHandshakeAndJoin);</div>
+      <div class="anno-cell info">
+        <strong>הבעיה:</strong> BLE discovery מאשר peer כל 2s. בלי gating, כל אירוע פתח clientHandshakeAndJoin חדש; שני handshakes במקביל יצרו תור של scans ב-CoreWLAN וגרמו ל-"Resource busy" infinite loop. <strong>התיקון:</strong> per-peer flags — `attemptInFlight` בזמן ריצה, `lastAttempt` ל-cooldown 30s. אם handshake נכשל, נמתין 30s לפני ניסיון נוסף; אם הצליח (`helloSent=true`), לא מנסים שוב בכלל באותו session.
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="control-plane" class="file-section">
+  <h2>Control Plane — Request / Accept / Decline</h2>
+  <div class="path">cpp_core/src/bettersend_api.cpp — handshake בין סנדר למקבל לפני העברת קובץ</div>
+  <div class="code-rows">
+    <div class="code-row">
+      <div class="code-cell">// Wire: piggyback on Clipboard payload with "BS\t" prefix + JSON
+// Three kinds: request | accept | decline
+//   request → {"kind":"request","id":"...","size":N,"name":"file.jpg"}
+//   accept  → {"kind":"accept","id":"..."}
+//   decline → {"kind":"decline","id":"..."}
+
+struct PendingOutgoing { std::string filePath, peerName; };
+struct PendingIncoming { std::string senderName, senderIp, filename;
+                         std::size_t size; };
+
+// Sender (bettersend_send_file):
+pendingOutgoing[transferId] = {filePath, peerName};
+transport-&gt;send(ip, port, TextTransferable{ "BS\t" + requestJson });
+
+// Receiver inbound (startServer callback):
+if (isControlPayload(data)) {
+  switch (kind):
+    case "request":
+      pendingIncoming[id] = {sender, senderIp, filename, size};
+      ctx-&gt;requestCb(id, sender, filename, size);  // → Dart dialog
+      return;
+    case "accept":   // sender side: send the actual File now
+      filePath = pendingOutgoing[id].filePath;
+      transport-&gt;send(peerIp, port, FileTransferable{filePath});
+      return;
+    case "decline":  // sender side: notify UI
+      ctx-&gt;declineCb(id);
+      return;
+}
+
+// User actions:
+bettersend_accept_transfer(id)  → sends accept control to senderIp
+bettersend_decline_transfer(id) → sends decline control to senderIp</div>
+      <div class="anno-cell info">
+        <strong>למה control plane:</strong> דחיפת קבצים בלי הסכמה זה חוויית AirDrop שבורה. ב-Phase 1 v2 השליחה היא 4-שלבית: (1) sender שולח request, (2) receiver UI מציג AlertDialog, (3) receiver שולח accept/decline, (4) רק על accept — sender שולח את הקובץ.
+        <br/><br/>
+        <strong>למה JSON-in-Clipboard ולא ערך wire חדש:</strong> שמירת הפרוטוקול הקיים פנוי לשינויים עתידיים (encryption, chunked, etc.). ה-control נושא prefix <code>"BS\t"</code> שמבחין אותו מ-Clipboard רגיל באופן חד-משמעי (TAB לא מופיע ב-Hello sentinel ולא בטקסט normal).
+        <br/><br/>
+        <strong>State:</strong> pendingOutgoing/pendingIncoming maps ב-<code>BetterSendContext</code>, מוגנים ב-<code>transfersMu</code>. transferId נוצר ב-Dart (timestamp_us + random hex), שולח לnative דרך <code>bettersend_send_file</code>.
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="flutter-runtime" class="file-section">
+  <h2>Flutter Runtime — Dialog + Prune + Send Flow</h2>
+  <div class="path">flutter_app/lib/ — UI changes for accept/decline + liveness prune</div>
+  <div class="code-rows">
+    <div class="code-row">
+      <div class="code-cell">// home_screen.dart
+final List&lt;DiscoveredDevice&gt;  _devices  = [];
+final Map&lt;String, DateTime&gt;   _lastSeen = {};
+Timer?                        _pruner;
+
+_initBridge():
+  bridge.startServer(9000, onReceive: addToReceived);
+  bridge.onIncomingRequest(_handleIncomingRequest);
+  bridge.onTransferDeclined(_handleDeclined);
+  bridge.startAdvertising(9000);
+  bridge.startDiscovery(onFound: (d) {
+    _lastSeen[d.name] = DateTime.now();
+    if (!_devices.any((e) =&gt; e.name == d.name)) _devices.add(d);
+  });
+  _pruner = Timer.periodic(2s, _prune);
+
+_prune(): remove devices with lastSeen older than 10s.
+
+_pickAndSend(device):
+  result = await FilePicker.platform.pickFiles();
+  bridge.sendFile(device, result.path);  // sends Request, not file
+  SnackBar("Request sent; waiting for accept...");
+
+_handleIncomingRequest(req):
+  showDialog(AlertDialog(
+    title: "Incoming file",
+    content: "${req.senderName} wants to send: ${req.filename} (${fmtBytes(size)})",
+    actions: [
+      Decline → bridge.declineTransfer(req.transferId),
+      Accept  → bridge.acceptTransfer(req.transferId),
+    ],
+  ));
+
+_handleDeclined(id): SnackBar("Peer declined the transfer.");</div>
+      <div class="anno-cell info">
+        <strong>חוויית משתמש מלאה:</strong> Sender לוחץ Send → bridge בוחר transferId אקראי, שולח request → snackbar "Request sent; waiting for accept...". Receiver רואה Dialog → לוחץ Accept/Decline. אם Accept — הקובץ מגיע ל-Received list עם snackbar. אם Decline — sender מקבל snackbar "Peer declined".
+        <br/><br/>
+        <strong>Prune:</strong> peer שלא משדר 10s נעלם מהרשימה. native shוlח event כל 2s (heartbeat throttle); ה-Timer.periodic של Flutter פועל באותו קצב לסנן stale entries.
+        <br/><br/>
+        <strong>ffi_bridge.dart:</strong> <code>NativeCallable.listener</code> לכל callback (discovery, transfer recv, request, decline) — כל אחד עם close ב-dispose. השמות שהnative מקצה ב-heap (`new char[]`) משוחררים ב-Dart דרך <code>bettersend_free_cstr</code>.
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="entitlements-runtime" class="file-section">
+  <h2>Entitlements — File Picker</h2>
+  <div class="path">flutter_app/macos/Runner/{Debug,Release}.entitlements — הרשאת sandbox לקבצים שהמשתמש בחר</div>
+  <div class="code-rows">
+    <div class="code-row">
+      <div class="code-cell">&lt;key&gt;com.apple.security.app-sandbox&lt;/key&gt;
+&lt;true/&gt;
+&lt;key&gt;com.apple.security.network.client&lt;/key&gt;
+&lt;true/&gt;
+&lt;key&gt;com.apple.security.network.server&lt;/key&gt;
+&lt;true/&gt;
+&lt;key&gt;com.apple.security.device.bluetooth&lt;/key&gt;
+&lt;true/&gt;
+&lt;key&gt;com.apple.security.files.user-selected.read-only&lt;/key&gt;
+&lt;true/&gt;
+</div>
+      <div class="anno-cell info">
+        <strong>הסיבה לתקלה שהיתה אצל Yonatan:</strong> ה-app sandbox של macOS חוסם פתיחת קבצים מחוץ ל-container אם אין entitlement מתאים. בלי <code>com.apple.security.files.user-selected.read-only</code>, <code>FilePicker.platform.pickFiles()</code> מצליח לפתוח את החלון אבל לא יכול לקרוא את הקובץ שנבחר. אצל Nathaniel (Windows) אין sandbox → עבד מיד. נוסף לשני קבצים — Debug + Release.
       </div>
     </div>
   </div>
