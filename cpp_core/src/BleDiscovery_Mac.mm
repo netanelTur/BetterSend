@@ -303,8 +303,13 @@ std::unique_ptr<IDiscovery> makeDiscovery() {
 		}
 	}
 	if (isBetterSendApple) {
+		// Only trust LocalName from the live advertisement. peripheral.name
+		// is the OS-cached Bluetooth Classic friendly name, which surfaces
+		// even when the peer isn't running BetterSend and double-emits the
+		// same Windows machine (once via the Windows GattServiceProvider
+		// advert that carries our ServiceUUID without a LocalName, once via
+		// the BluetoothLEAdvertisementPublisher with our ManufacturerData).
 		NSString* localName = advertisementData[CBAdvertisementDataLocalNameKey];
-		if (localName.length == 0) localName = peripheral.name;
 		if (localName.length > 0) name = std::string(localName.UTF8String);
 	}
 

@@ -53,10 +53,12 @@ constexpr const char* kHelloMagic   = "BetterSendHello\0";
 constexpr int         kHandshakeTimeoutSec = 20;
 
 struct PeerInfo {
-	std::string peerId;             // "ble:<platformId>" from BLE discovery
-	std::string ip;                 // hotspot-subnet IP, learned at runtime
-	int         port{kDefaultPort};
-	bool        helloSent{false};   // Mac side: did we send our Hello?
+	std::string                           peerId;       // "ble:<platformId>" from BLE discovery
+	std::string                           ip;           // hotspot-subnet IP, learned at runtime
+	int                                   port{kDefaultPort};
+	bool                                  helloSent{false};       // Mac: did we send our Hello?
+	bool                                  attemptInFlight{false}; // Mac: handshake/join in progress
+	std::chrono::steady_clock::time_point lastAttempt{};          // Mac: cooldown anchor
 };
 
 struct BetterSendContext {
@@ -275,17 +277,27 @@ void bettersend_start_discovery(void* handle, DeviceFoundCallback onFound) {
 #if defined(_WIN32)
 			BetterSend::ensureHostStarted(*ctx, BetterSend::kDefaultPort);
 #elif defined(__APPLE__)
+			bool shouldSpawn = false;
 			{
 				std::lock_guard lock(ctx->peersMu);
-				const auto& info = ctx->peersByName[d.name];
-				if (info.helloSent) {
-					// Already paired with this peer — nothing more to do.
-				} else {
-					BetterSend::Device snap = d;
-					std::thread([ctx, snap]() mutable {
-						BetterSend::clientHandshakeAndJoin(*ctx, snap);
-					}).detach();
+				auto& info = ctx->peersByName[d.name];
+				const auto now = std::chrono::steady_clock::now();
+				const bool inCooldown =
+					info.lastAttempt.time_since_epoch().count() != 0 &&
+					now - info.lastAttempt < std::chrono::seconds(BetterSend::kPeerRetrySec);
+				if (!info.helloSent && !info.attemptInFlight && !inCooldown) {
+					info.attemptInFlight = true;
+					info.lastAttempt     = now;
+					shouldSpawn          = true;
 				}
+			}
+			if (shouldSpawn) {
+				BetterSend::Device snap = d;
+				std::thread([ctx, snap]() mutable {
+					BetterSend::clientHandshakeAndJoin(*ctx, snap);
+					std::lock_guard lock(ctx->peersMu);
+					ctx->peersByName[snap.name].attemptInFlight = false;
+				}).detach();
 			}
 #endif
 

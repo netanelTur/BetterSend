@@ -60,6 +60,13 @@ inline constexpr int kMaxDeviceNameLen = 64;
 inline constexpr int kPeerHeartbeatSec = 2;
 inline constexpr int kPeerStaleSec     = 10;
 
+// Minimum cooldown between full handshake attempts for the same peer.
+// BLE discovery fires every couple seconds (kPeerHeartbeatSec); without a
+// per-peer cooldown a failed Wi-Fi join queues another join request before
+// the previous CoreWLAN scan finishes, causing back-to-back "Resource busy"
+// errors. After this many seconds we let the next attempt through.
+inline constexpr int kPeerRetrySec     = 30;
+
 // ── Logger ────────────────────────────────────────────────────────────────────
 inline constexpr char kDefaultLogFile[] = "bettersend_debug.log";
 
