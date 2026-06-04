@@ -210,16 +210,6 @@ void bettersend_destroy(void* handle) {
 	}
 }
 
-// Round-trip echo — proves the Flutter ↔ C++ FFI pipeline is wired up.
-// Returns a pointer into a thread-local buffer; valid until next call on this thread.
-const char* bettersend_echo(const char* text) {
-	static thread_local std::string buf;
-	buf = "Hello from C++: ";
-	buf += (text ? text : "");
-	BS_LOG_DEBUG("API", "echo: '{}'", buf);
-	return buf.c_str();
-}
-
 void bettersend_start_server(void* handle, int port,
                              TransferReceivedCallback onReceive) {
 	if (!handle) return;

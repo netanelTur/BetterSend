@@ -21,9 +21,6 @@ final DynamicLibrary _lib = _loadLibrary();
 
 // ── 2. Native typedefs ────────────────────────────────────────────────────────
 
-typedef _NativeEcho = Pointer<Utf8> Function(Pointer<Utf8>);
-typedef _DartEcho   = Pointer<Utf8> Function(Pointer<Utf8>);
-
 typedef _NativeCreate   = Pointer<Void> Function(Pointer<Utf8>);
 typedef _DartCreate     = Pointer<Void> Function(Pointer<Utf8>);
 
@@ -62,7 +59,6 @@ typedef _DartFreeCstr   = void Function(Pointer<Utf8>);
 
 // ── 3. Lookup functions ───────────────────────────────────────────────────────
 
-final _echo             = _lib.lookupFunction<_NativeEcho,        _DartEcho>       ('bettersend_echo');
 final _create           = _lib.lookupFunction<_NativeCreate,      _DartCreate>     ('bettersend_create');
 final _destroy          = _lib.lookupFunction<_NativeDestroy,     _DartDestroy>    ('bettersend_destroy');
 final _startAdvertising = _lib.lookupFunction<_NativeStartAdv,    _DartStartAdv>   ('bettersend_start_advertising');
@@ -83,12 +79,6 @@ class BetterSendBridge {
 		final namePtr = deviceName.toNativeUtf8();
 		_handle = _create(namePtr);
 		malloc.free(namePtr);
-	}
-
-	/// Round-trip echo — verifies Dart ↔ C++ FFI pipeline.
-	String echo(String text) {
-		final ptr = _echo(text.toNativeUtf8());
-		return ptr.toDartString();
 	}
 
 	/// Advertise this device via BLE so peers can find us.

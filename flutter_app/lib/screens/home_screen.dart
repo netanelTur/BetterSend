@@ -16,7 +16,6 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
 	final List<DiscoveredDevice> _devices  = [];
 	final List<ReceivedTransfer> _received = [];
-	String _echoResult = '';
 
 	@override
 	void initState() {
@@ -55,10 +54,6 @@ class _HomeScreenState extends State<HomeScreen> {
 		ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(label)));
 	}
 
-	void _runEcho() {
-		setState(() => _echoResult = widget.bridge.echo('Hello World'));
-	}
-
 	Future<void> _pickAndSend(DiscoveredDevice device) async {
 		final result = await FilePicker.platform.pickFiles();
 		if (result == null || result.files.isEmpty) return;
@@ -85,34 +80,6 @@ class _HomeScreenState extends State<HomeScreen> {
 				child: Column(
 					crossAxisAlignment: CrossAxisAlignment.stretch,
 					children: [
-						// ── FFI smoke test ─────────────────────────────────────────
-						Card(
-							child: Padding(
-								padding: const EdgeInsets.all(16.0),
-								child: Column(
-									crossAxisAlignment: CrossAxisAlignment.start,
-									children: [
-										const Text('FFI Pipeline Test',
-											style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-										const SizedBox(height: 8),
-										ElevatedButton(
-											onPressed: _runEcho,
-											child: const Text('Send "Hello World" → C++'),
-										),
-										if (_echoResult.isNotEmpty) ...[
-											const SizedBox(height: 8),
-											Text(_echoResult,
-												style: const TextStyle(
-													color: Colors.green,
-													fontFamily: 'monospace',
-												)),
-										],
-									],
-								),
-							),
-						),
-						const SizedBox(height: 24),
-
 						// ── Nearby devices ─────────────────────────────────────────
 						Row(
 							children: [
@@ -128,8 +95,7 @@ class _HomeScreenState extends State<HomeScreen> {
 						),
 						const SizedBox(height: 8),
 
-						SizedBox(
-							height: 220,
+						Expanded(
 							child: _devices.isEmpty
 								? const Center(
 									child: Text('Scanning for devices...',
