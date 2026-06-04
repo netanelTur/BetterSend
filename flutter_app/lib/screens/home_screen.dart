@@ -1,6 +1,8 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
+
 import '../ffi_bridge.dart';
-import 'device_list_screen.dart';
 import 'transfer_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -23,10 +25,19 @@ class _HomeScreenState extends State<HomeScreen> {
 	}
 
 	void _initBridge() {
+		// Order matters: TCP server must be listening before the Mac fires
+		// its post-join Hello at the Windows host, otherwise Windows never
+		// learns the Mac's hotspot IP and can't send back to it.
+		widget.bridge.startServer(9000, onReceive: (t) {
+			setState(() => _received.add(t));
+			if (mounted) {
+				_showReceivedSnack(t);
+			}
+		});
 		widget.bridge.startAdvertising(9000);
 		widget.bridge.startDiscovery(onFound: (d) {
 			setState(() {
-				if (!_devices.any((e) => e.ip == d.ip)) _devices.add(d);
+				if (!_devices.any((e) => e.name == d.name)) _devices.add(d);
 			});
 		});
 	}
@@ -37,22 +48,38 @@ class _HomeScreenState extends State<HomeScreen> {
 		super.dispose();
 	}
 
+	void _showReceivedSnack(ReceivedTransfer t) {
+		final label = t.type == TransferType.file
+			? 'File from ${t.senderName}: ${t.name}'
+			: 'Clipboard from ${t.senderName}';
+		ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(label)));
+	}
+
 	void _runEcho() {
 		setState(() => _echoResult = widget.bridge.echo('Hello World'));
+	}
+
+	Future<void> _pickAndSend(DiscoveredDevice device) async {
+		final result = await FilePicker.platform.pickFiles();
+		if (result == null || result.files.isEmpty) return;
+		final path = result.files.single.path;
+		if (path == null) return;
+
+		widget.bridge.sendFile(device, path);
+		if (!mounted) return;
+
+		await Navigator.push(context, MaterialPageRoute(
+			builder: (_) => TransferScreen(
+				device:   device,
+				fileName: p.basename(path),
+			),
+		));
 	}
 
 	@override
 	Widget build(BuildContext context) {
 		return Scaffold(
-			appBar: AppBar(
-				title: const Text('BetterSend'),
-				actions: [
-					IconButton(
-						icon: const Icon(Icons.settings),
-						onPressed: () {},
-					),
-				],
-			),
+			appBar: AppBar(title: const Text('BetterSend')),
 			body: Padding(
 				padding: const EdgeInsets.all(24.0),
 				child: Column(
@@ -74,15 +101,11 @@ class _HomeScreenState extends State<HomeScreen> {
 										),
 										if (_echoResult.isNotEmpty) ...[
 											const SizedBox(height: 8),
-											Text(
-												_echoResult,
-												style: TextStyle(
-													color: _echoResult.startsWith('[mock]')
-														? Colors.orange
-														: Colors.green,
+											Text(_echoResult,
+												style: const TextStyle(
+													color: Colors.green,
 													fontFamily: 'monospace',
-												),
-											),
+												)),
 										],
 									],
 								),
@@ -105,7 +128,8 @@ class _HomeScreenState extends State<HomeScreen> {
 						),
 						const SizedBox(height: 8),
 
-						Expanded(
+						SizedBox(
+							height: 220,
 							child: _devices.isEmpty
 								? const Center(
 									child: Text('Scanning for devices...',
@@ -115,26 +139,32 @@ class _HomeScreenState extends State<HomeScreen> {
 									itemCount: _devices.length,
 									itemBuilder: (_, i) => _DeviceCard(
 										device: _devices[i],
-										onSend: () => _sendToDevice(_devices[i]),
+										onSend: () => _pickAndSend(_devices[i]),
 									),
+								),
+						),
+
+						const SizedBox(height: 24),
+
+						// ── Received transfers ────────────────────────────────────
+						const Text('Received',
+							style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+						const SizedBox(height: 8),
+						Expanded(
+							child: _received.isEmpty
+								? const Center(
+									child: Text('Nothing received yet.',
+										style: TextStyle(color: Colors.grey)),
+								)
+								: ListView.builder(
+									itemCount: _received.length,
+									itemBuilder: (_, i) => _ReceivedCard(transfer: _received[i]),
 								),
 						),
 					],
 				),
 			),
-			floatingActionButton: FloatingActionButton(
-				onPressed: () => Navigator.push(context, MaterialPageRoute(
-					builder: (_) => DeviceListScreen(devices: _devices, bridge: widget.bridge),
-				)),
-				child: const Icon(Icons.send),
-			),
 		);
-	}
-
-	void _sendToDevice(DiscoveredDevice d) {
-		Navigator.push(context, MaterialPageRoute(
-			builder: (_) => TransferScreen(device: d),
-		));
 	}
 }
 
@@ -160,13 +190,37 @@ class _DeviceCard extends StatelessWidget {
 				leading: Icon(_iconFor(device.kind), size: 36),
 				title: Text(device.name,
 					style: const TextStyle(fontWeight: FontWeight.bold)),
-				subtitle: Text('${device.ip}:${device.port}',
+				subtitle: Text(device.ip,
 					style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
 				trailing: IconButton(
 					icon: const Icon(Icons.send),
 					tooltip: 'Send to ${device.name}',
 					onPressed: onSend,
 				),
+			),
+		);
+	}
+}
+
+// ── Received card ─────────────────────────────────────────────────────────────
+
+class _ReceivedCard extends StatelessWidget {
+	final ReceivedTransfer transfer;
+	const _ReceivedCard({required this.transfer});
+
+	@override
+	Widget build(BuildContext context) {
+		final isFile = transfer.type == TransferType.file;
+		final title  = isFile ? transfer.name : 'Clipboard text';
+		final subtitle = isFile
+			? 'From ${transfer.senderName} · saved to: ${transfer.data}'
+			: 'From ${transfer.senderName} · ${transfer.sizeBytes} chars';
+		return Card(
+			child: ListTile(
+				leading: Icon(isFile ? Icons.insert_drive_file : Icons.content_paste,
+					size: 32),
+				title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+				subtitle: Text(subtitle, style: const TextStyle(fontSize: 12)),
 			),
 		);
 	}

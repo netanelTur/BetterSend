@@ -45,11 +45,22 @@ add_library(bettersend_core SHARED
 #   Windows → BleDiscovery_Windows.cpp (WinRT advertise + scan — Phase 1)
 #   Other   → MdnsDiscovery (raw mDNS via mdns.h — dev fallback / Android later)
 if(APPLE)
-    target_sources(bettersend_core PRIVATE src/BleDiscovery_Mac.mm)
-    set_source_files_properties(src/BleDiscovery_Mac.mm PROPERTIES
-        COMPILE_FLAGS "-fobjc-arc")
+    target_sources(bettersend_core PRIVATE
+        src/BleDiscovery_Mac.mm
+        src/BleHandshake_Mac.mm
+        src/MacWifiClientBroker.mm
+    )
+    set_source_files_properties(
+        src/BleDiscovery_Mac.mm
+        src/BleHandshake_Mac.mm
+        src/MacWifiClientBroker.mm
+        PROPERTIES COMPILE_FLAGS "-fobjc-arc")
 elseif(WIN32)
-    target_sources(bettersend_core PRIVATE src/BleDiscovery_Windows.cpp)
+    target_sources(bettersend_core PRIVATE
+        src/BleDiscovery_Windows.cpp
+        src/BleHandshake_Windows.cpp
+        src/WindowsHotspotBroker.cpp
+    )
 else()
     target_sources(bettersend_core PRIVATE src/MdnsDiscovery.cpp)
 endif()
@@ -74,6 +85,7 @@ if(APPLE)
     target_link_libraries(bettersend_core PRIVATE
         "-framework Foundation"
         "-framework CoreBluetooth"
+        "-framework CoreWLAN"
     )
 elseif(ANDROID)
     target_link_libraries(bettersend_core PRIVATE log)

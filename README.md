@@ -25,7 +25,7 @@ AirDrop is great — but Apple only. BetterSend does the same thing across every
 
 | Phase | Goal | Status |
 |-------|------|--------|
-| **1** | File transfer **Mac ↔ Windows**, no internet, no shared WiFi | 🚧 Active |
+| **1** | File transfer **Mac ↔ Windows**, no internet, no shared WiFi | ✅ Code complete (E2E test pending) |
 | **2** | iOS ↔ Android (same BLE → hotspot pattern) | ⏳ Queued |
 | **3** | Clipboard (copied text) transfer | ⏳ Queued |
 | **4** | Full OS matrix — every pair, every direction | ⏳ Queued |
@@ -93,9 +93,11 @@ flutter run -d windows
 ```
 **One-time:** after the first `flutter run`, copy `bettersend_core.dll` plus the three MinGW runtime DLLs (`libgcc_s_seh-1.dll`, `libstdc++-6.dll`, `libwinpthread-1.dll`) into `flutter_app/build/windows/x64/runner/Debug/`. TODO: a post-build CMake step to automate this, matching the Xcode build phase on macOS.
 
-> **Phase 1 discovery (BLE advertise + scan) is live on both sides** — `BleDiscovery_Windows.cpp` (WinRT) and `BleDiscovery_Mac.mm` (CoreBluetooth). The next piece is the post-discovery connection broker (Windows Mobile Hotspot ↔ macOS CoreWLAN auto-join). Until the broker lands, peers found via BLE expose `Device.ip = "ble:<addr>"` / `"ble:<uuid>"` as a placeholder — no actual file transfer yet.
+> **Phase 1 end-to-end pipeline is wired**: BLE discovery (Windows + Mac) → BLE GATT credential handshake → Windows Mobile Hotspot bring-up (WinRT) → Mac CoreWLAN auto-join → TCP file transfer via Asio. Both sides run a TCP receive server on port 9000 and surface received files / clipboard via the `onReceive` FFI callback.
 >
 > macOS requires Bluetooth permission. `Info.plist` carries `NSBluetoothAlwaysUsageDescription`; both entitlements files declare `com.apple.security.device.bluetooth`. First run will prompt the user — approve the dialog or scanning silently returns no peers.
+>
+> Windows side requires an active `InternetConnectionProfile` (any adapter, online or not) for `NetworkOperatorTetheringManager` to start the hotspot. Configure the hotspot SSID + passphrase once in Windows Settings → Network → Mobile Hotspot; BetterSend reads them via WinRT and publishes via GATT.
 
 ## Project structure
 
@@ -104,18 +106,24 @@ BetterSend/
 ├── cpp_core/
 │   ├── include/          # Interfaces + data types
 │   │   ├── IDiscovery.h  ITransport.h  IProtocol.h  ITransferable.h
+│   │   ├── IConnectionBroker.h  IPeerHandshake.h
 │   │   ├── BonjourDiscovery.h  MdnsDiscovery.h  BleDiscovery.h
+│   │   ├── TcpTransport.h  TransferProtocol.h
 │   │   ├── FileTransferable.h  TextTransferable.h
 │   │   ├── Device.h  Constants.h  Logger.h
 │   │   └── mdns.h            # Single-header mDNS (mjansson, public domain)
 │   ├── src/
-│   │   ├── BonjourDiscovery.cpp   # Apple only: dns_sd.h + AWDL (Apple-pair, later)
-│   │   ├── MdnsDiscovery.cpp      # Linux/Android: raw mDNS (dev fallback)
-│   │   ├── BleDiscovery_Windows.cpp  # Phase 1 Windows side: WinRT BLE advertise + scan
-│   │   ├── BleDiscovery_Mac.mm       # Phase 1 macOS side: CoreBluetooth advertise + scan
-│   │   ├── TcpTransport.cpp
-│   │   ├── TransferProtocol.cpp
-│   │   └── bettersend_api.cpp     # extern "C" Facade for Flutter FFI
+│   │   ├── BonjourDiscovery.cpp        # Apple-pair future phase (excluded from Phase 1 build)
+│   │   ├── MdnsDiscovery.cpp           # Dev fallback (Linux/Android future)
+│   │   ├── BleDiscovery_Windows.cpp    # Phase 1 Windows BLE advertise + scan (WinRT)
+│   │   ├── BleDiscovery_Mac.mm         # Phase 1 macOS BLE advertise + scan (CoreBluetooth)
+│   │   ├── BleHandshake_Windows.cpp    # Phase 1 GATT server — publishes hotspot creds
+│   │   ├── BleHandshake_Mac.mm         # Phase 1 GATT client — reads peer's creds
+│   │   ├── WindowsHotspotBroker.cpp    # Phase 1 host — brings up Windows Mobile Hotspot
+│   │   ├── MacWifiClientBroker.mm      # Phase 1 client — CoreWLAN associateToNetwork
+│   │   ├── TcpTransport.cpp            # Asio async server + sync send, streaming file recv
+│   │   ├── TransferProtocol.cpp        # nlohmann/json header + 4B BE length prefix
+│   │   └── bettersend_api.cpp          # extern "C" Facade for Flutter FFI
 │   └── tests/
 ├── flutter_app/
 │   ├── lib/

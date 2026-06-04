@@ -20,6 +20,17 @@ inline constexpr char    kMdnsMulticastAddr[] = "224.0.0.251";
 // leaving no room for a name. v4 random, custom range. Same on every platform.
 inline constexpr char    kBleServiceUuid[]    = "5BE77ECD-A1B2-4F1A-8C5D-7F8E9D2C4A6B";
 
+// GATT characteristic UUID inside the BetterSend service. Read-only,
+// returns UTF-8 JSON: {"ssid":"...","psk":"...","hostIp":"...","port":N}.
+// Used by IPeerHandshake to deliver hotspot credentials from the host
+// (Windows in Phase 1) to the client (Mac) over BLE after discovery.
+inline constexpr char    kBleHandshakeCharUuid[] = "5BE77ECD-A1B2-4F1A-8C5D-7F8E9D2C4A6C";
+
+// Maximum payload bytes for the handshake characteristic. The hotspot
+// credentials JSON fits comfortably inside one GATT MTU (default 23,
+// negotiable up to ~512). 256 is a safe ceiling.
+inline constexpr int     kBleHandshakeMaxBytes = 256;
+
 // Advertising marker. Bluetooth SIG company ID 0xFFFF is reserved for
 // development/internal use. We tag every BetterSend advertisement with this
 // company ID plus a 4-byte magic prefix, then pack the device name behind it:

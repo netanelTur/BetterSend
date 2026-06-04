@@ -15,6 +15,7 @@ struct Transfer {
 
 	Type        type;
 	std::string senderName;   // Device name from the protocol header
+	std::string senderIp;     // Socket-level IP of the sender (captured by transport)
 	std::string name;         // Filename (empty for Clipboard transfers)
 	std::size_t sizeBytes{};  // Payload size in bytes
 	std::string data;         // For Clipboard: the text. For File: path to saved file.

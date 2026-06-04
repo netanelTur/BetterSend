@@ -1,75 +1,153 @@
 #include <gtest/gtest.h>
-#include <gmock/gmock.h>
-#include "ITransport.h"
-#include "IProtocol.h"
+
+#include "TcpTransport.h"
+#include "TransferProtocol.h"
+#include "TextTransferable.h"
+#include "FileTransferable.h"
 #include "Constants.h"
-#include <future>
+
+#include <atomic>
 #include <chrono>
+#include <filesystem>
+#include <fstream>
+#include <future>
+#include <memory>
+#include <string>
+#include <vector>
 
 // ── test_transport.cpp ────────────────────────────────────────────────────────
-// Unit + integration tests for TcpTransport.
-//
-// Strategy:
-//   - MockProtocol isolates TcpTransport from JSON encoding.
-//   - Localhost round-trip tests verify the full send → receive flow.
-//
-// For round-trip tests use std::promise/future to synchronize across threads
-// without sleeping. Timeout: 3 seconds per test.
+// localhost round-trip tests for TcpTransport. Each test uses a distinct
+// port so failures don't bleed across cases.
 
 using namespace BetterSend;
 using namespace std::chrono_literals;
 
-// ── MockProtocol ──────────────────────────────────────────────────────────────
-// Uncomment and fill in when gmock is available in the build.
-//
-// class MockProtocol : public IProtocol {
-// public:
-//     MOCK_METHOD(std::vector<uint8_t>, encodeHeader, (const MessageHeader&), (override));
-//     MOCK_METHOD(MessageHeader, decodeHeader, (std::span<const uint8_t>), (override));
-// };
+namespace {
 
-// ─────────────────────────────────────────────────────────────────────────────
+std::shared_ptr<IProtocol> makeProto() {
+	return std::make_shared<TransferProtocol>();
+}
+
+std::filesystem::path writeTempFile(const std::string& contents,
+                                    const std::string& name = "test.bin") {
+	const auto path = std::filesystem::temp_directory_path() / name;
+	std::ofstream out(path, std::ios::binary | std::ios::trunc);
+	out.write(contents.data(), static_cast<std::streamsize>(contents.size()));
+	out.close();
+	return path;
+}
+
+std::string readAll(const std::filesystem::path& path) {
+	std::ifstream in(path, std::ios::binary);
+	return std::string{std::istreambuf_iterator<char>(in),
+	                   std::istreambuf_iterator<char>()};
+}
+
+} // namespace
 
 TEST(TransportTest, SendAndReceiveClipboard_LocalhostRoundTrip) {
-	// Arrange
-	// auto proto     = std::make_shared<TransferProtocol>();
-	// auto transport = std::make_unique<TcpTransport>(proto, "TestDevice");
-	//
-	// std::promise<Transfer> promise;
-	// auto future = promise.get_future();
-	//
-	// constexpr int kTestPort = 19001;
-	// transport->startServer(kTestPort, [&promise](Transfer t) {
-	//     promise.set_value(std::move(t));
-	// });
-	//
-	// Act
-	// transport->send("127.0.0.1", kTestPort, TextTransferable{"hello world"});
-	//
-	// Assert
-	// ASSERT_EQ(future.wait_for(3s), std::future_status::ready);
-	// auto received = future.get();
-	// EXPECT_EQ(received.type, Transfer::Type::Clipboard);
-	// EXPECT_EQ(received.data, "hello world");
-	GTEST_SKIP() << "TcpTransport not implemented yet";
+	TcpTransport transport(makeProto(), "TestDevice");
+
+	std::promise<Transfer> promise;
+	auto future = promise.get_future();
+
+	constexpr int kPort = 19011;
+	transport.startServer(kPort, [&promise](Transfer t) {
+		promise.set_value(std::move(t));
+	});
+	std::this_thread::sleep_for(100ms);
+
+	transport.send("127.0.0.1", kPort, TextTransferable{"hello world"});
+
+	ASSERT_EQ(future.wait_for(3s), std::future_status::ready);
+	const auto rec = future.get();
+	EXPECT_EQ(rec.type,       Transfer::Type::Clipboard);
+	EXPECT_EQ(rec.senderName, "TestDevice");
+	EXPECT_EQ(rec.data,       "hello world");
+	EXPECT_EQ(rec.sizeBytes,  11u);
+
+	transport.stop();
 }
 
 TEST(TransportTest, SendAndReceiveFile_LocalhostRoundTrip) {
-	// Write a temp file with known content, send it, verify data arrives intact.
-	// Use std::filesystem::temp_directory_path() for the temp file path.
-	//
-	// ASSERT checksum/content equality after receive.
-	GTEST_SKIP() << "TcpTransport not implemented yet";
+	const std::string body(8192, 'X');
+	const auto src = writeTempFile(body, "bettersend_send.bin");
+
+	TcpTransport transport(makeProto(), "TestDevice");
+
+	std::promise<Transfer> promise;
+	auto future = promise.get_future();
+
+	constexpr int kPort = 19012;
+	transport.startServer(kPort, [&promise](Transfer t) {
+		promise.set_value(std::move(t));
+	});
+	std::this_thread::sleep_for(100ms);
+
+	transport.send("127.0.0.1", kPort, FileTransferable{src});
+
+	ASSERT_EQ(future.wait_for(5s), std::future_status::ready);
+	const auto rec = future.get();
+	EXPECT_EQ(rec.type,      Transfer::Type::File);
+	EXPECT_EQ(rec.sizeBytes, body.size());
+
+	ASSERT_FALSE(rec.data.empty()) << "Receiver should report a saved path";
+	const auto got = readAll(rec.data);
+	EXPECT_EQ(got.size(), body.size());
+	EXPECT_EQ(got,        body);
+
+	std::error_code ec;
+	std::filesystem::remove(rec.data, ec);
+	std::filesystem::remove(src,      ec);
+	transport.stop();
 }
 
 TEST(TransportTest, MultipleSequentialTransfers_AllArrive) {
-	// Send 3 clipboard messages sequentially.
-	// Verify the onReceive callback fires exactly 3 times with correct data.
-	GTEST_SKIP() << "TcpTransport not implemented yet";
+	TcpTransport transport(makeProto(), "TestDevice");
+
+	std::mutex                                      mu;
+	std::vector<Transfer>                           received;
+	std::promise<void>                              allDone;
+	auto                                            future = allDone.get_future();
+	constexpr std::size_t                           kCount = 3;
+	std::atomic<std::size_t>                        seen{0};
+
+	constexpr int kPort = 19013;
+	transport.startServer(kPort, [&](Transfer t) {
+		{
+			std::lock_guard lock(mu);
+			received.push_back(std::move(t));
+		}
+		if (++seen == kCount) allDone.set_value();
+	});
+	std::this_thread::sleep_for(100ms);
+
+	for (std::size_t i = 0; i < kCount; ++i) {
+		transport.send("127.0.0.1", kPort,
+			TextTransferable{"msg-" + std::to_string(i)});
+	}
+
+	ASSERT_EQ(future.wait_for(3s), std::future_status::ready);
+	std::lock_guard lock(mu);
+	ASSERT_EQ(received.size(), kCount);
+
+	transport.stop();
 }
 
 TEST(TransportTest, StopServer_NoCrashAfterStop) {
-	// Start server, call stop(), then attempt a send.
-	// Must not crash and must not invoke onReceive.
-	GTEST_SKIP() << "TcpTransport not implemented yet";
+	TcpTransport transport(makeProto(), "TestDevice");
+
+	constexpr int kPort = 19014;
+	std::atomic<bool> received{false};
+	transport.startServer(kPort, [&received](Transfer) { received = true; });
+	std::this_thread::sleep_for(100ms);
+
+	transport.stop();
+
+	// Sending to a stopped server should fail gracefully (no callback fire,
+	// no crash). We don't assert on the connect error itself — Asio
+	// behaviour for connection-refused varies by platform.
+	transport.send("127.0.0.1", kPort, TextTransferable{"after-stop"});
+	std::this_thread::sleep_for(200ms);
+	EXPECT_FALSE(received.load());
 }

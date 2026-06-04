@@ -1,21 +1,17 @@
 #include <gtest/gtest.h>
-#include "IProtocol.h"
+#include "TransferProtocol.h"
 #include "Constants.h"
+
+#include <cstdint>
+#include <stdexcept>
+#include <string>
 
 // ── test_protocol.cpp ─────────────────────────────────────────────────────────
 // Unit tests for TransferProtocol.
-// No mocks needed — TransferProtocol is pure logic with no I/O.
-//
-// How to wire up the implementation when ready:
-//   Option A: include the .cpp directly (fast for small files):
-//     #include "../src/TransferProtocol.cpp"
-//   Option B: link bettersend_core in CMakeLists and use the class normally.
-//
-// All tests follow Arrange / Act / Assert structure.
+// Pure logic; no I/O. All tests follow Arrange / Act / Assert.
 
 using namespace BetterSend;
 
-// Helper: build a default file header for reuse across tests
 static MessageHeader makeFileHeader() {
 	return {
 		.type       = MessageHeader::Type::File,
@@ -25,59 +21,77 @@ static MessageHeader makeFileHeader() {
 	};
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-
 TEST(ProtocolTest, EncodeDecodeFileHeader_RoundTrip) {
-	// Arrange
-	// TODO: auto proto = std::make_unique<TransferProtocol>();
-	// auto original = makeFileHeader();
+	TransferProtocol proto;
+	const auto original = makeFileHeader();
 
-	// Act
-	// auto bytes   = proto->encodeHeader(original);
-	// auto decoded = proto->decodeHeader(bytes);
+	const auto bytes   = proto.encodeHeader(original);
+	const auto decoded = proto.decodeHeader(bytes);
 
-	// Assert
-	// EXPECT_EQ(decoded.type,       original.type);
-	// EXPECT_EQ(decoded.name,       original.name);
-	// EXPECT_EQ(decoded.size,       original.size);
-	// EXPECT_EQ(decoded.senderName, original.senderName);
-	GTEST_SKIP() << "TransferProtocol not implemented yet";
+	EXPECT_EQ(decoded.type,       original.type);
+	EXPECT_EQ(decoded.name,       original.name);
+	EXPECT_EQ(decoded.size,       original.size);
+	EXPECT_EQ(decoded.senderName, original.senderName);
 }
 
 TEST(ProtocolTest, EncodeDecodeClipboardHeader_RoundTrip) {
-	// Arrange
-	// MessageHeader original{MessageHeader::Type::Clipboard, "", 42, "Pixel-6"};
+	TransferProtocol proto;
+	MessageHeader original{
+		.type       = MessageHeader::Type::Clipboard,
+		.name       = {},
+		.size       = 42,
+		.senderName = "Pixel-6",
+	};
 
-	// Act + Assert: same round-trip check as above
-	GTEST_SKIP() << "TransferProtocol not implemented yet";
+	const auto bytes   = proto.encodeHeader(original);
+	const auto decoded = proto.decodeHeader(bytes);
+
+	EXPECT_EQ(decoded.type,       MessageHeader::Type::Clipboard);
+	EXPECT_EQ(decoded.name,       "");
+	EXPECT_EQ(decoded.size,       42u);
+	EXPECT_EQ(decoded.senderName, "Pixel-6");
 }
 
 TEST(ProtocolTest, LengthPrefixIsBigEndian) {
-	// The first 4 bytes of the encoded output must be a big-endian uint32
-	// representing the JSON length.
-	//
-	// Arrange + Act
-	// auto bytes = proto->encodeHeader(makeFileHeader());
-	//
-	// Assert
-	// uint32_t len = (bytes[0]<<24)|(bytes[1]<<16)|(bytes[2]<<8)|bytes[3];
-	// EXPECT_EQ(bytes.size(), kHeaderLengthBytes + len);
-	GTEST_SKIP() << "TransferProtocol not implemented yet";
+	TransferProtocol proto;
+	const auto bytes = proto.encodeHeader(makeFileHeader());
+
+	ASSERT_GE(bytes.size(), kHeaderLengthBytes);
+	const uint32_t len =
+		(static_cast<uint32_t>(bytes[0]) << 24) |
+		(static_cast<uint32_t>(bytes[1]) << 16) |
+		(static_cast<uint32_t>(bytes[2]) <<  8) |
+		 static_cast<uint32_t>(bytes[3]);
+	EXPECT_EQ(bytes.size(), kHeaderLengthBytes + len);
 }
 
-TEST(ProtocolTest, DecodeInvalidData_ThrowsRuntimeError) {
-	// Passing garbage bytes must throw, not crash.
-	//
-	// EXPECT_THROW(proto->decodeHeader(std::span<const uint8_t>{}),
-	//              std::runtime_error);
-	GTEST_SKIP() << "TransferProtocol not implemented yet";
+TEST(ProtocolTest, DecodeTooShort_Throws) {
+	TransferProtocol proto;
+	const std::vector<uint8_t> two{0xAB, 0xCD};
+	EXPECT_THROW({ (void)proto.decodeHeader(two); }, std::runtime_error);
+}
+
+TEST(ProtocolTest, DecodeInvalidJson_Throws) {
+	TransferProtocol proto;
+	// length prefix = 5, then 5 bytes of invalid JSON ('{:::}')
+	const std::vector<uint8_t> garbage{
+		0x00, 0x00, 0x00, 0x05,
+		'{', ':', ':', ':', '}'
+	};
+	EXPECT_THROW({ (void)proto.decodeHeader(garbage); }, std::runtime_error);
 }
 
 TEST(ProtocolTest, UnicodeFileName_SurvivesRoundTrip) {
-	// Filenames with UTF-8 (Hebrew, emoji, etc.) must survive encode→decode.
-	//
-	// MessageHeader hdr{MessageHeader::Type::File, "תמונה🎉.png", 512, "Test"};
-	// auto decoded = proto->decodeHeader(proto->encodeHeader(hdr));
-	// EXPECT_EQ(decoded.name, hdr.name);
-	GTEST_SKIP() << "TransferProtocol not implemented yet";
+	TransferProtocol proto;
+	MessageHeader hdr{
+		.type       = MessageHeader::Type::File,
+		.name       = "תמונה🎉.png",
+		.size       = 512,
+		.senderName = "Test",
+	};
+
+	const auto decoded = proto.decodeHeader(proto.encodeHeader(hdr));
+	EXPECT_EQ(decoded.name,       hdr.name);
+	EXPECT_EQ(decoded.size,       hdr.size);
+	EXPECT_EQ(decoded.senderName, hdr.senderName);
 }

@@ -377,6 +377,16 @@
   </div>
 
   <div class="section">
+    <div class="section-label">Phase 1 — חיבור</div>
+    <a href="#iconnectionbroker">IConnectionBroker.h <span class="tag tag-cpp">C++</span></a>
+    <a href="#ipeerhandshake">IPeerHandshake.h <span class="tag tag-cpp">C++</span></a>
+    <a href="#hotspot-broker">WindowsHotspotBroker.cpp <span class="tag tag-cpp">C++</span></a>
+    <a href="#wifi-client-broker">MacWifiClientBroker.mm <span class="tag tag-cpp">Obj-C++</span></a>
+    <a href="#gatt-windows">BleHandshake_Windows.cpp <span class="tag tag-cpp">C++</span></a>
+    <a href="#gatt-mac">BleHandshake_Mac.mm <span class="tag tag-cpp">Obj-C++</span></a>
+  </div>
+
+  <div class="section">
     <div class="section-label">API & נתונים</div>
     <a href="#constants">Constants.h <span class="tag tag-cpp">C++</span></a>
     <a href="#device">Device.h <span class="tag tag-cpp">C++</span></a>
@@ -413,7 +423,7 @@
     <span style="background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;">Future — Cloud Room</span>
   </div>
   <div class="meta">
-    <span>עדכון אחרון: 2026-06-03</span>
+    <span>עדכון אחרון: 2026-06-04</span>
     <span>שלב פעיל: Phase 1 — BleDiscovery חי בשני הצדדים; Mac מכריז ServiceUUID+LocalName (Apple לא נותן ManufacturerData ב-advertise), Windows מכריז ManufacturerData; שני הצדדים סורקים את שתי החתימות. הצעד הבא: Connection Broker (Hotspot ↔ CoreWLAN join)</span>
   </div>
 </div>
@@ -1785,6 +1795,259 @@ target_link_libraries(bettersend_core <span class="kw">PRIVATE</span>
 leading: <span class="ty">Icon</span>(<span class="fn">_iconFor</span>(device.kind), size: <span class="nm">36</span>),</div>
       <div class="anno-cell info">
         <strong>בחירת האייקון לפי סוג.</strong> ה-<code>device.kind</code> getter (ב-<a href="#ffibridge">ffi_bridge.dart</a>) מסיק desktop/mobile/unknown מהשם, וכאן בוחרים את ה-Material icon המתאים. אופציה כללית <code>Icons.devices_other</code> שמורה ל-fallback של "unknown" (לא בשימוש בPhase 1 אבל יהיה בעתיד).
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Phase 1 Pipeline — new files (2026-06-04) ─────────────────────────── -->
+
+<div id="iconnectionbroker" class="file-section">
+  <h2>IConnectionBroker.h</h2>
+  <div class="path">cpp_core/include/IConnectionBroker.h — Strategy interface ל-bring-up של רשת IP אחרי גילוי BLE</div>
+  <div class="code-rows">
+    <div class="code-row">
+      <div class="code-cell">struct Credentials {
+  std::string ssid;
+  std::string psk;
+  std::string hostIp;
+};
+
+virtual Credentials  startHost()    = 0;
+virtual bool         joinNetwork(ssid, psk) = 0;
+virtual void         stop()         = 0;</div>
+      <div class="anno-cell info">
+        <strong>שני תפקידים — host וclient.</strong> כל פלטפורמה ב-Phase 1 ממשת את התפקיד שלה: Windows = host (WindowsHotspotBroker), Mac = client (MacWifiClientBroker). תפקיד לא נתמך זורק <code>std::runtime_error</code> — fail loudly. <code>Credentials</code> חוצה ל-GATT דרך <a href="#ipeerhandshake">IPeerHandshake</a>.
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="ipeerhandshake" class="file-section">
+  <h2>IPeerHandshake.h</h2>
+  <div class="path">cpp_core/include/IPeerHandshake.h — חילופי credentials מעל BLE GATT</div>
+  <div class="code-rows">
+    <div class="code-row">
+      <div class="code-cell">virtual void        publishPayload(const std::string&amp;) = 0;
+virtual std::string fetchPayload(peerId, timeoutSeconds) = 0;
+virtual void        stop() = 0;</div>
+      <div class="anno-cell info">
+        <strong>Strategy לבחירת תפקיד GATT.</strong> Windows publishes JSON; Mac fetches JSON. אחרי discovery ולפני שה-broker מרים hotspot, ה-host כותב את ה-credentials לcharacteristic; ה-client קורא אותו מעל GATT ומעביר ל-broker.joinNetwork. UUIDים ב-<a href="#constants">Constants.h</a> (<code>kBleServiceUuid</code> + <code>kBleHandshakeCharUuid</code>).
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="hotspot-broker" class="file-section">
+  <h2>WindowsHotspotBroker.cpp</h2>
+  <div class="path">cpp_core/src/WindowsHotspotBroker.cpp — מימוש IConnectionBroker ב-WinRT (Windows בלבד)</div>
+  <div class="code-rows">
+    <div class="code-row">
+      <div class="code-cell">auto profile = NetworkInformation::GetInternetConnectionProfile();
+manager_ = NetworkOperatorTetheringManager::CreateFromConnectionProfile(profile);
+auto config = manager_.GetCurrentAccessPointConfiguration();
+
+auto result = manager_.StartTetheringAsync().get();
+
+Credentials c{};
+c.ssid   = config.Ssid();
+c.psk    = config.Passphrase();
+c.hostIp = "192.168.137.1";      // Windows ICS gateway קבוע</div>
+      <div class="anno-cell info">
+        <strong>WinRT API להפעלת Mobile Hotspot ב-Windows.</strong> דורש <code>InternetConnectionProfile</code> פעיל — מגבלת מערכת. ה-SSID + Passphrase נקראים מההגדרות הקיימות של Windows (לא משנים כדי לא לדרוש הרשאת Admin). ה-host IP <code>192.168.137.1</code> תמיד מוקצה ע"י Internet Connection Sharing למתאם המארח. <code>joinNetwork()</code> זורק כי תפקיד client לא נתמך כאן.
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="wifi-client-broker" class="file-section">
+  <h2>MacWifiClientBroker.mm</h2>
+  <div class="path">cpp_core/src/MacWifiClientBroker.mm — מימוש IConnectionBroker מעל CoreWLAN (macOS בלבד)</div>
+  <div class="code-rows">
+    <div class="code-row">
+      <div class="code-cell">CWInterface* iface = [[CWWiFiClient sharedWiFiClient] interface];
+if (!iface.powerOn) [iface setPower:YES error:&amp;e];
+
+CWNetwork* net = findNetwork(iface, ssid);   // עד 3 sweeps
+[iface associateToNetwork:net password:psk error:&amp;e];</div>
+      <div class="anno-cell info">
+        <strong>CoreWLAN <code>associateToNetwork:password:error:</code></strong> מצטרף ל-SSID של Windows. <code>findNetwork</code> סורק עד 3 פעמים — לפעמים ה-radio מפספס את ה-beacon הראשון אחרי שה-Windows רק עכשיו הרים את ה-hotspot. בפעם הראשונה macOS עלולה להציג prompt; אחר כך שקט. <code>startHost()</code> זורק כי macOS לא חושף API להרמת hotspot מתכנותית — Phase 1 tie-break: Windows תמיד host.
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="gatt-windows" class="file-section">
+  <h2>BleHandshake_Windows.cpp</h2>
+  <div class="path">cpp_core/src/BleHandshake_Windows.cpp — שרת GATT (host) ב-WinRT</div>
+  <div class="code-rows">
+    <div class="code-row">
+      <div class="code-cell">auto svcResult = GattServiceProvider::CreateAsync(serviceGuid).get();
+provider_       = svcResult.ServiceProvider();
+
+GattLocalCharacteristicParameters charParams;
+charParams.CharacteristicProperties(GattCharacteristicProperties::Read);
+auto charResult = provider_.Service()
+    .CreateCharacteristicAsync(charGuid, charParams).get();
+characteristic_ = charResult.Characteristic();
+
+characteristic_.ReadRequested([this](auto, auto args) {
+  auto req = args.GetRequestAsync().get();
+  DataWriter w;
+  w.WriteBytes(snapshot_of_payload_);
+  req.RespondWithValue(w.DetachBuffer());
+});
+
+provider_.StartAdvertising({IsConnectable=true, IsDiscoverable=true});</div>
+      <div class="anno-cell info">
+        <strong>שרת GATT מקומי על <code>kBleServiceUuid</code>.</strong> characteristic יחיד (Read-only) שמחזיר את ה-JSON האחרון שנקבע ב-<code>publishPayload()</code>. <code>publishPayload</code> idempotent: כתיבה חוזרת רק מחליפה את ה-snapshot ב-mutex; ה-server רץ פעם אחת בלבד. <code>StartAdvertising</code> מודיע שהמכשיר מקבל חיבורים — חיוני כדי שמק יוכל לבצע <code>connectPeripheral</code>.
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="gatt-mac" class="file-section">
+  <h2>BleHandshake_Mac.mm</h2>
+  <div class="path">cpp_core/src/BleHandshake_Mac.mm — קליינט GATT ב-CoreBluetooth (macOS בלבד)</div>
+  <div class="code-rows">
+    <div class="code-row">
+      <div class="code-cell">// fetchPayload(peerId="ble:&lt;UUIDString&gt;", timeout):
+//   1. CBCentralManager → scan (services:nil) עד שrows-discover ה-UUIDString
+//   2. didDiscoverPeripheral שמתאים → stopScan + connectPeripheral
+//   3. didConnectPeripheral → discoverServices:[serviceUuid]
+//   4. didDiscoverServices → discoverCharacteristics:[charUuid]
+//   5. didDiscoverCharacteristicsForService → readValueForCharacteristic
+//   6. didUpdateValueForCharacteristic → NSString(UTF8) → signal semaphore
+dispatch_semaphore_wait(self.done, dispatch_time(NOW, timeoutSeconds * NSEC_PER_SEC));
+</div>
+      <div class="anno-cell info">
+        <strong>סדר הקריאות של CoreBluetooth הוא callback chain.</strong> כל שלב יורש מהקודם דרך delegate. ה-<code>peerId</code> שמגיע מ-<a href="#blediscovery-mac">BleDiscovery_Mac</a> ("ble:&lt;UUIDString&gt;") עובר strip של ה-"ble:" ומשמש להתאמה ל-<code>peripheral.identifier.UUIDString</code>. ל-<code>publishPayload()</code> זורק כי macOS Phase 1 הוא תמיד client.
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="protocol-impl" class="file-section">
+  <h2>TransferProtocol.h + .cpp</h2>
+  <div class="path">cpp_core/{include,src}/TransferProtocol.{h,cpp} — encode/decode עם nlohmann/json + length-prefix BE</div>
+  <div class="code-rows">
+    <div class="code-row">
+      <div class="code-cell">// encodeHeader
+nlohmann::json j;
+j["type"]   = "file" | "clipboard";
+j["name"]   = header.name;
+j["size"]   = header.size;
+j["sender"] = header.senderName;
+std::string body = j.dump();
+out[0..3] = BE32(body.size());
+out[4..]  = body.bytes;
+
+// decodeHeader
+jsonLen = readBE32(data[0..3]);
+if (jsonLen == 0 || jsonLen &gt; kMaxHeaderSizeBytes) throw;
+nlohmann::json::parse(data[4..4+jsonLen]);</div>
+      <div class="anno-cell info">
+        <strong>פורמט wire יחיד לכל סוגי ההעברה.</strong> 4 bytes big-endian → JSON header → payload נפרד. Validation: too-short / out-of-range length / invalid JSON זורקים <code>std::runtime_error</code>. Unicode (עברית, emoji) שורד את ה-round-trip — מוכח ב-<code>test_protocol.cpp</code> (5 tests, ירוקים).
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="tcp-impl" class="file-section">
+  <h2>TcpTransport.h + .cpp</h2>
+  <div class="path">cpp_core/{include,src}/TcpTransport.{h,cpp} — Asio standalone, async accept + streaming file recv</div>
+  <div class="code-rows">
+    <div class="code-row">
+      <div class="code-cell">// startServer:
+//   io_context + acceptor on background thread
+//   async_accept → per-session detached thread:
+//     asio::read 4-byte BE length
+//     asio::read jsonLen bytes → IProtocol::decodeHeader
+//     File: stream chunks (kReceiveBufferSize) to temp file
+//     Clipboard: read full size into string
+//     onReceive(Transfer{senderName, senderIp, name, sizeBytes, data})
+//
+// send: blocking connect, write header bytes + payload bytes.
+// stop: acceptor.close + io.stop + join</div>
+      <div class="anno-cell info">
+        <strong>מבנה Pimpl (<code>struct Impl</code>) מסתיר את Asio מ-headers ציבוריים.</strong> <code>Transfer.senderIp</code> נשלף מ-<code>sock.remote_endpoint()</code> — מהותי ב-Phase 1 כי Windows לומד את ה-Mac IP על subnet ה-hotspot רק מהחבילה הראשונה (ה-Hello של מק). 4 localhost round-trip tests עוברים (clipboard, file 8KB, 3 sequential, stop-no-crash).
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="api-pipeline" class="file-section">
+  <h2>bettersend_api.cpp — Phase 1 pipeline</h2>
+  <div class="path">cpp_core/src/bettersend_api.cpp — Facade שמחבר discovery + handshake + broker + transport</div>
+  <div class="code-rows">
+    <div class="code-row">
+      <div class="code-cell">// on BLE peer found:
+#if _WIN32
+  ensureHostStarted(ctx, port):
+    broker->startHost() → {ssid, psk, hostIp}
+    handshake->publishPayload(JSON)
+#elif __APPLE__
+  thread { clientHandshakeAndJoin(ctx, peer):
+    handshake->fetchPayload(peerId, 20s)
+    broker->joinNetwork(ssid, psk)
+    sleep(1.5s)  // DHCP
+    transport->send(hostIp, port, TextTransferable{Hello})
+  }
+#endif
+
+// on TCP receive:
+//   Hello sentinel → record peer IP from socket, suppress callback
+//   File/Clipboard → forward to Dart via TransferReceivedCallback
+
+bettersend_send_file(handle, peerName, filePath):
+  ip = peers[peerName].ip   // learned via GATT (mac) או Hello (win)
+  transport->send(ip, kDefaultPort, FileTransferable{filePath})</div>
+      <div class="anno-cell info">
+        <strong>זה הצינור המלא.</strong> Phase 1 tie-break ב-<code>#ifdef</code>: Windows = host always, macOS = client always. ה-Hello של מק (TextTransferable עם prefix sentinel) מאפשר לwindows ללמוד את ה-IP של מק על ה-hotspot subnet — נסתר מה-UI. <code>bettersend_send_file</code> נכשל בשקט אם לא קרה pairing עדיין (peer ip עוד לא ידוע).
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="ffibridge-update" class="file-section">
+  <h2>ffi_bridge.dart — שדרוג Phase 1</h2>
+  <div class="path">flutter_app/lib/ffi_bridge.dart — startServer + sendFile + sendClipboard עכשיו אמיתיים</div>
+  <div class="code-rows">
+    <div class="code-row">
+      <div class="code-cell">typedef NativeTransferRecvCb = Void Function(
+  Int32, Pointer&lt;Utf8&gt;, Pointer&lt;Utf8&gt;, Pointer&lt;Utf8&gt;, Int64);
+
+startServer(port, onReceive):
+  _transferCb = NativeCallable&lt;NativeTransferRecvCb&gt;.listener((..) {
+    decode strings, free with bettersend_free_cstr, call onReceive
+  });
+  _startServerN(_handle, port, _transferCb.nativeFunction);
+
+sendFile(device, path)   → _sendFile(_handle, device.name, path)
+sendClipboard(device, t) → _sendClipboard(_handle, device.name, t)</div>
+      <div class="anno-cell info">
+        <strong>C API חתום על peer לפי שם, לא IP.</strong> ה-Dart side מעביר את <code>device.name</code> לC, וה-C מחפש ב-registry הפנימי שלו את ה-IP של ה-hotspot. listener mode של NativeCallable שולח את ה-callback ל-Dart isolate — בטוח מ-background threads. צריך לזכור <code>_freeCstr</code> על כל שלושת ה-pointers שהC heap-allocated.
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="home-update" class="file-section">
+  <h2>home_screen.dart — Phase 1 send + receive</h2>
+  <div class="path">flutter_app/lib/screens/home_screen.dart — file picker + רשימת received</div>
+  <div class="code-rows">
+    <div class="code-row">
+      <div class="code-cell">initState:
+  bridge.startServer(9000, onReceive: snack + add to _received)
+  bridge.startAdvertising(9000)
+  bridge.startDiscovery(onFound: add to _devices)
+
+_pickAndSend(device):
+  result = FilePicker.platform.pickFiles()
+  bridge.sendFile(device, result.files.single.path)
+  → push TransferScreen(progress indicator)</div>
+      <div class="anno-cell info">
+        <strong>סדר הקריאות חשוב.</strong> ה-TCP server חייב להאזין לפני שה-Mac שולח Hello אל Windows — אחרת ה-host לא ילמד את ה-IP של מק. <code>file_picker</code> נוסף ל-pubspec; הוא נטיב לכל פלטפורמה. הרשימה <code>_received</code> בתחתית המסך מציגה כל קובץ שנכנס (כולל הנתיב המקומי שאליו נשמר), וגם SnackBar קצר עם שם השולח.
       </div>
     </div>
   </div>
