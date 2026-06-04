@@ -138,40 +138,54 @@ public:
 		}
 	}
 
+	// Pause / resume releases the entire CBCentralManager / CBPeripheralManager
+	// during the Wi-Fi handoff window. Just calling stopScan / stopAdvertising
+	// is NOT enough on Apple silicon — the still-allocated managers keep the
+	// BT framework holding the shared radio, and CoreWLAN's
+	// scanForNetworksWithName: blocks with "Resource busy" for tens of seconds.
+	// Dropping the manager objects (ARC dealloc) forces the BT subsystem to
+	// release its grip; the resume path allocates new managers, which power
+	// back on in ~50–100 ms (peripheralManagerDidUpdateState → kickAdvertise).
 	void pauseScan() override {
 		@autoreleasepool {
-			if (delegate_.central && delegate_.central.isScanning) {
-				[delegate_.central stopScan];
-				BS_LOG_DEBUG(kComponent, "Scan paused (Wi-Fi handoff)");
+			if (delegate_.central) {
+				if (delegate_.central.isScanning) [delegate_.central stopScan];
+				delegate_.central.delegate = nil;
+				delegate_.central = nil;
+				BS_LOG_DEBUG(kComponent, "Scan paused (central released)");
 			}
 		}
 	}
 
 	void resumeScan() override {
 		@autoreleasepool {
-			if (delegate_.wantScan && delegate_.central &&
-			    delegate_.central.state == CBManagerStatePoweredOn) {
-				kickScan();
-				BS_LOG_DEBUG(kComponent, "Scan resumed");
+			if (delegate_.wantScan && !delegate_.central) {
+				delegate_.central = [[CBCentralManager alloc]
+					initWithDelegate:delegate_ queue:queue_];
+				BS_LOG_DEBUG(kComponent, "Scan resumed (central recreated)");
 			}
 		}
 	}
 
 	void pauseAdvertise() override {
 		@autoreleasepool {
-			if (delegate_.peripheral && delegate_.peripheral.isAdvertising) {
-				[delegate_.peripheral stopAdvertising];
-				BS_LOG_DEBUG(kComponent, "Advertise paused (Wi-Fi handoff)");
+			if (delegate_.peripheral) {
+				if (delegate_.peripheral.isAdvertising) {
+					[delegate_.peripheral stopAdvertising];
+				}
+				delegate_.peripheral.delegate = nil;
+				delegate_.peripheral = nil;
+				BS_LOG_DEBUG(kComponent, "Advertise paused (peripheral released)");
 			}
 		}
 	}
 
 	void resumeAdvertise() override {
 		@autoreleasepool {
-			if (delegate_.wantAdvertise && delegate_.peripheral &&
-			    delegate_.peripheral.state == CBManagerStatePoweredOn) {
-				kickAdvertise();
-				BS_LOG_DEBUG(kComponent, "Advertise resumed");
+			if (delegate_.wantAdvertise && !delegate_.peripheral) {
+				delegate_.peripheral = [[CBPeripheralManager alloc]
+					initWithDelegate:delegate_ queue:queue_];
+				BS_LOG_DEBUG(kComponent, "Advertise resumed (peripheral recreated)");
 			}
 		}
 	}

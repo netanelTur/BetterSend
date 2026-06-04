@@ -433,7 +433,7 @@
     <span style="background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;">Future — Cloud Room</span>
   </div>
   <div class="meta">
-    <span>עדכון אחרון: 2026-06-04 (Phase 1 connect fix — scan-filter by service UUID to skip non-connectable Windows advert)</span>
+    <span>עדכון אחרון: 2026-06-04 (Phase 1 BT release — nil-out CBManagers during Wi-Fi handoff to clear "Resource busy")</span>
     <span>שלב פעיל: Phase 1 — צינור מלא: BLE discovery → GATT handshake → Hotspot bring-up → CoreWLAN join → TCP. Control plane של request/accept/decline פעיל. המקבל מאשר/דוחה לפני העברת קובץ.</span>
   </div>
 </div>
@@ -2119,15 +2119,31 @@ void resumeAdvertise() override {
 }
 
 // bettersend_api.cpp clientHandshakeAndJoin:
-ctx.handshake-&gt;stop();             // close GATT central
-ctx.discovery-&gt;pauseScan();        // stop discovery central
-ctx.discovery-&gt;pauseAdvertise();   // stop CBPeripheralManager — frees radio
-sleep(2.5s);                       // let BT stack tear down
+ctx.handshake-&gt;stop();             // nil-out handshake central
+ctx.discovery-&gt;pauseScan();        // nil-out discovery central
+ctx.discovery-&gt;pauseAdvertise();   // nil-out discovery peripheral
+sleep(4s);                         // BT subsystem fully releases the radio
 joined = ctx.broker-&gt;joinNetwork(ssid, psk);
-ctx.discovery-&gt;resumeScan();
-ctx.discovery-&gt;resumeAdvertise();  // peer can rediscover us</div>
+ctx.discovery-&gt;resumeScan();       // re-alloc central (kickScan via state cb)
+ctx.discovery-&gt;resumeAdvertise();  // re-alloc peripheral (kickAdvertise via cb)
+
+// BleDiscovery_Mac pauseScan example (other pause/resume mirror it):
+void pauseScan() override {
+  if (delegate_.central) {
+    if (delegate_.central.isScanning) [delegate_.central stopScan];
+    delegate_.central.delegate = nil;
+    delegate_.central = nil;             // ARC dealloc → BT framework releases
+  }
+}
+void resumeScan() override {
+  if (delegate_.wantScan &amp;&amp; !delegate_.central) {
+    delegate_.central = [[CBCentralManager alloc]
+        initWithDelegate:delegate_ queue:queue_];
+    // peripheralManagerDidUpdateState fires ~50–100 ms later → kickScan().
+  }
+}</div>
       <div class="anno-cell info">
-        <strong>למה צריך:</strong> Mac BT ו-Wi-Fi חולקים אנטנה אחת בסיליקון של Apple. <em>כל</em> פעילות BLE פעילה — central scan, central connect, וגם <code>CBPeripheralManager</code> שמשדר advertise — מספיקה כדי לתפוס את הרדיו. כשרק ה-scan נעצר אבל ה-advertise ממשיך, <code>CWInterface scanForNetworksWithName:</code> מחזיר <code>"Resource busy"</code> ב-6 הניסיונות עד שמוותרים. הוכח בריצה משולבת 2026-06-04 17:05 (Mac+Windows): GATT read הצליח (80 bytes), אבל כל scan נכשל. הוספת pauseAdvertise/resumeAdvertise תיקנה את זה. ה-advertise חוזר אחרי join (גם בכישלון), כך שה-peer יראה אותנו ב-session הבא.
+        <strong>למה צריך:</strong> Mac BT ו-Wi-Fi חולקים אנטנה אחת בסיליקון של Apple. <em>כל</em> פעילות BLE פעילה — central scan, central connect, advertise, וגם עצם הקצאת <code>CBCentralManager</code>/<code>CBPeripheralManager</code> בזיכרון — מספיקה כדי לתפוס את הרדיו. <code>stopScan</code> / <code>stopAdvertising</code> לא מספיקים: המנהלים עדיין קיימים והמסגרת של BT מחזיקה ברדיו. הפתרון המלא: <code>nil</code>-out למנהלים (ARC dealloc → BT framework משחרר), sleep של 4s, ואז CoreWLAN. ב-resume מקצים מנהלים חדשים, ו-<code>peripheralManagerDidUpdateState</code> אוטומטית מפעיל את <code>kickAdvertise</code>/<code>kickScan</code> בערך 50–100ms אחר כך. הוכח בריצה משולבת 2026-06-04 17:32: רק אחרי nil-out + 4s sleep, <code>scanForNetworksWithName:</code> מצליח.
       </div>
     </div>
   </div>

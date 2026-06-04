@@ -194,7 +194,11 @@ void clientHandshakeAndJoin(BetterSendContext& ctx, const Device& peer) {
 		ctx.handshake->stop();
 		ctx.discovery->pauseScan();
 		ctx.discovery->pauseAdvertise();
-		std::this_thread::sleep_for(std::chrono::milliseconds(2500));
+		// 4 seconds gives ARC + the BT subsystem time to fully release the
+		// shared radio after the CBCentralManager / CBPeripheralManager
+		// objects are dropped. Anything shorter (we tried 2.5 s) and CoreWLAN
+		// still races with the lingering BT state and returns "Resource busy".
+		std::this_thread::sleep_for(std::chrono::milliseconds(4000));
 
 		const bool joined = ctx.broker->joinNetwork(ssid, psk);
 		ctx.discovery->resumeScan();
