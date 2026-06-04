@@ -4,10 +4,15 @@
 //
 // Flow inside fetchPayload(peerId, timeoutSeconds):
 //   1. Spin up our own CBCentralManager on a private serial dispatch queue.
-//   2. Once it powers on, scan for peripherals (services:nil — same trick
-//      as BleDiscovery_Mac.mm: we match by peripheral.identifier.UUIDString
-//      to peerId, not by Service UUID, because Windows peers don't always
-//      put the Service UUID in the legacy advertisement).
+//   2. Once it powers on, scan filtered by service UUID. Windows runs two
+//      concurrent BLE publishers: a BluetoothLEAdvertisementPublisher
+//      (manufacturer data only — NOT connectable) and a GattServiceProvider
+//      (advertises the service UUID — connectable). They show up as two
+//      separate CBPeripherals with different identifiers; if we scanned with
+//      services:nil and matched by peripheral.identifier, we'd often target
+//      the non-connectable channel and connectPeripheral would hang forever
+//      (CoreBluetooth has no built-in connect timeout). Filtering the scan
+//      by service UUID guarantees we only ever see the connectable peer.
 //   3. On match, connect → discover BetterSend service → discover the
 //      handshake characteristic → read its value.
 //   4. Stash the UTF-8 bytes as an NSString, signal a dispatch_semaphore,
@@ -139,8 +144,14 @@ private:
 	void kickScan() {
 		if (!delegate_.wantScan) return;
 		if (delegate_.central.isScanning) return;
+		// Filter scan by the BetterSend service UUID so CoreBluetooth only
+		// surfaces peripherals whose advert includes that UUID — i.e., the
+		// connectable GattServiceProvider on Windows — and silently drops
+		// the non-connectable manufacturer-data advert that shares the same
+		// name. See file header for the full rationale.
 		NSDictionary* opts = @{ CBCentralManagerScanOptionAllowDuplicatesKey : @NO };
-		[delegate_.central scanForPeripheralsWithServices:nil options:opts];
+		[delegate_.central scanForPeripheralsWithServices:@[ delegate_.serviceUuid ]
+		                                          options:opts];
 	}
 
 	BSHandshakeMacDelegate*  delegate_{nil};
@@ -173,11 +184,17 @@ std::unique_ptr<IPeerHandshake> makePeerHandshake() {
      advertisementData:(NSDictionary<NSString *,id> *)advertisementData
                   RSSI:(NSNumber *)RSSI {
 	using namespace BetterSend;
-	if (!self.targetUuid) return;
+	// Scan is filtered by serviceUuid in kickScan, so every peripheral
+	// fired here already advertises the BetterSend service and is
+	// connectable. Connect to the first one seen. In a single-host Phase 1
+	// pair this is unambiguous; future multi-host scenarios will add a
+	// name-based secondary filter.
+	if (self.target) return; // already connecting
 	NSString* uuidStr = peripheral.identifier.UUIDString;
-	if (![uuidStr isEqualToString:self.targetUuid]) return;
-
-	BS_LOG_INFO(kHandshakeComponent, "Found target peripheral, connecting");
+	BS_LOG_INFO(kHandshakeComponent,
+		"Found target peripheral id={} name={}, connecting",
+		std::string(uuidStr.UTF8String),
+		std::string(peripheral.name ? peripheral.name.UTF8String : "(nil)"));
 	[central stopScan];
 	self.target          = peripheral;
 	self.target.delegate = self;

@@ -433,7 +433,7 @@
     <span style="background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;">Future — Cloud Room</span>
   </div>
   <div class="meta">
-    <span>עדכון אחרון: 2026-06-04 (Phase 1 join fix — pauseAdvertise during CoreWLAN scan)</span>
+    <span>עדכון אחרון: 2026-06-04 (Phase 1 connect fix — scan-filter by service UUID to skip non-connectable Windows advert)</span>
     <span>שלב פעיל: Phase 1 — צינור מלא: BLE discovery → GATT handshake → Hotspot bring-up → CoreWLAN join → TCP. Control plane של request/accept/decline פעיל. המקבל מאשר/דוחה לפני העברת קובץ.</span>
   </div>
 </div>
@@ -1922,8 +1922,9 @@ provider_.StartAdvertising({IsConnectable=true, IsDiscoverable=true});</div>
   <div class="code-rows">
     <div class="code-row">
       <div class="code-cell">// fetchPayload(peerId="ble:&lt;UUIDString&gt;", timeout):
-//   1. CBCentralManager → scan (services:nil) עד שrows-discover ה-UUIDString
-//   2. didDiscoverPeripheral שמתאים → stopScan + connectPeripheral
+//   1. CBCentralManager → scan filtered by serviceUuid
+//      (scanForPeripheralsWithServices:@[serviceUuid])
+//   2. didDiscoverPeripheral (first match) → stopScan + connectPeripheral
 //   3. didConnectPeripheral → discoverServices:[serviceUuid]
 //   4. didDiscoverServices → discoverCharacteristics:[charUuid]
 //   5. didDiscoverCharacteristicsForService → readValueForCharacteristic
@@ -1931,7 +1932,7 @@ provider_.StartAdvertising({IsConnectable=true, IsDiscoverable=true});</div>
 dispatch_semaphore_wait(self.done, dispatch_time(NOW, timeoutSeconds * NSEC_PER_SEC));
 </div>
       <div class="anno-cell info">
-        <strong>סדר הקריאות של CoreBluetooth הוא callback chain.</strong> כל שלב יורש מהקודם דרך delegate. ה-<code>peerId</code> שמגיע מ-<a href="#blediscovery-mac">BleDiscovery_Mac</a> ("ble:&lt;UUIDString&gt;") עובר strip של ה-"ble:" ומשמש להתאמה ל-<code>peripheral.identifier.UUIDString</code>. ל-<code>publishPayload()</code> זורק כי macOS Phase 1 הוא תמיד client.
+        <strong>סדר הקריאות של CoreBluetooth הוא callback chain.</strong> כל שלב יורש מהקודם דרך delegate. <strong>פילטר scan חיוני:</strong> Windows מריץ שני BLE publishers במקביל — <code>BluetoothLEAdvertisementPublisher</code> (ManufacturerData בלבד, <em>לא</em> connectable) ו-<code>GattServiceProvider</code> (משדר את ה-service UUID, <em>כן</em> connectable). שניהם מקבלים <code>CBPeripheral.identifier</code> שונה. כששתי הצרכניות מופיעות, סינון לפי <code>peripheral.identifier</code> בלבד יכול להוביל ל-connect על הצינור הלא-connectable → <code>connectPeripheral:</code> תקוע לנצח (אין connect timeout ב-CoreBluetooth). הפתרון: scan עם <code>@[serviceUuid]</code> — CoreBluetooth מסנן אוטומטית רק את ה-GATT publisher. <code>publishPayload()</code> זורק כי macOS Phase 1 הוא תמיד client.
       </div>
     </div>
   </div>
