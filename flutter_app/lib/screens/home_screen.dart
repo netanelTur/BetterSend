@@ -1,9 +1,15 @@
+import 'dart:async';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
 import '../ffi_bridge.dart';
 import 'transfer_screen.dart';
+
+// Liveness windows — keep in sync with cpp_core/include/Constants.h.
+const Duration _kPeerHeartbeat = Duration(seconds: 2);
+const Duration _kPeerStale     = Duration(seconds: 10);
 
 class HomeScreen extends StatefulWidget {
 	final BetterSendBridge bridge;
@@ -14,8 +20,10 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-	final List<DiscoveredDevice> _devices  = [];
-	final List<ReceivedTransfer> _received = [];
+	final List<DiscoveredDevice>    _devices   = [];
+	final Map<String, DateTime>     _lastSeen  = {};
+	final List<ReceivedTransfer>    _received  = [];
+	Timer?                          _pruner;
 
 	@override
 	void initState() {
@@ -36,13 +44,31 @@ class _HomeScreenState extends State<HomeScreen> {
 		widget.bridge.startAdvertising(9000);
 		widget.bridge.startDiscovery(onFound: (d) {
 			setState(() {
+				_lastSeen[d.name] = DateTime.now();
 				if (!_devices.any((e) => e.name == d.name)) _devices.add(d);
 			});
+		});
+		_pruner = Timer.periodic(_kPeerHeartbeat, _prune);
+	}
+
+	void _prune(Timer _) {
+		final cutoff = DateTime.now().subtract(_kPeerStale);
+		final stale = _lastSeen.entries
+			.where((e) => e.value.isBefore(cutoff))
+			.map((e) => e.key)
+			.toList();
+		if (stale.isEmpty) return;
+		setState(() {
+			for (final name in stale) {
+				_devices.removeWhere((d) => d.name == name);
+				_lastSeen.remove(name);
+			}
 		});
 	}
 
 	@override
 	void dispose() {
+		_pruner?.cancel();
 		widget.bridge.dispose();
 		super.dispose();
 	}

@@ -51,6 +51,15 @@ inline constexpr uint32_t kReceiveBufferSize  = 65536; // 64 KB read chunks
 // ── Device ────────────────────────────────────────────────────────────────────
 inline constexpr int kMaxDeviceNameLen = 64;
 
+// ── Presence ──────────────────────────────────────────────────────────────────
+// BLE advertisements arrive 10–30 times per second per peer. To keep the FFI
+// callback rate low we emit at most once per heartbeat interval. The Flutter
+// side uses the same heartbeat as a "last seen" tick: peers that go silent
+// for more than `kPeerStaleSec` seconds are pruned from the visible list,
+// which avoids stale cached entries from previous sessions.
+inline constexpr int kPeerHeartbeatSec = 2;
+inline constexpr int kPeerStaleSec     = 10;
+
 // ── Logger ────────────────────────────────────────────────────────────────────
 inline constexpr char kDefaultLogFile[] = "bettersend_debug.log";
 

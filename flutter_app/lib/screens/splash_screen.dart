@@ -41,9 +41,9 @@ class _SplashScreenState extends State<SplashScreen>
 			body: Center(
 				child: FadeTransition(
 					opacity: _fade,
-					child: Column(
+					child: const Column(
 						mainAxisSize: MainAxisSize.min,
-						children: const [
+						children: [
 							Text(
 								'BetterSend',
 								style: TextStyle(

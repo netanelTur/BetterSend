@@ -24,6 +24,7 @@
 #include <algorithm>
 
 #include <atomic>
+#include <chrono>
 #include <mutex>
 #include <unordered_map>
 #include <unordered_set>
@@ -246,12 +247,19 @@ private:
 	}
 
 	void surfaceIfNew(const std::string& name, uint64_t addr) {
-		// Dedupe by name — both Apple and Windows rotate BLE addresses for
-		// privacy, so the human name is the only stable identifier across
-		// a session.
+		// Throttle: BLE Received events fire many times per second per peer.
+		// We surface a peer at most once per heartbeat so the Flutter side
+		// can use the steady cadence as a liveness signal and prune peers
+		// that stop advertising (the app on the other side was closed).
+		const auto now = std::chrono::steady_clock::now();
 		{
 			std::lock_guard lock(seenMu_);
-			if (!seenNames_.insert(name).second) return;
+			auto& last = lastEmit_[name];
+			if (last.time_since_epoch().count() != 0 &&
+			    now - last < std::chrono::seconds(kPeerHeartbeatSec)) {
+				return;
+			}
+			last = now;
 		}
 		std::string addrStr = formatBdAddr(addr);
 		BS_LOG_INFO(kComponent, "Found peer: name='{}' addr={}", name, addrStr);
@@ -269,7 +277,8 @@ private:
 	std::atomic<bool>                             advertising_{false};
 	std::atomic<bool>                             scanning_{false};
 	std::mutex                                    seenMu_;
-	std::unordered_set<std::string>               seenNames_;
+	std::unordered_map<std::string, std::chrono::steady_clock::time_point>
+	                                              lastEmit_;
 
 	std::mutex                                    nameCacheMu_;
 	std::unordered_map<uint64_t, std::string>     nameCache_;

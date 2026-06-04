@@ -33,10 +33,11 @@
 #include "Logger.h"
 
 #include <atomic>
+#include <chrono>
 #include <functional>
 #include <mutex>
 #include <string>
-#include <unordered_set>
+#include <unordered_map>
 
 namespace BetterSend {
 	constexpr const char* kComponent = "BleDisc";
@@ -153,12 +154,19 @@ public:
 
 	void onPeerDiscovered(const std::string& peerName, NSString* fallbackId) {
 		if (peerName.empty()) return;
-		// Dedupe by name: Windows rotates its BLE MAC every restart, so
-		// peripheral.identifier.UUIDString shifts under us. The device name is
-		// stable for the lifetime of the BetterSend session on each side.
+		// Throttle: emit each peer at most once per heartbeat. BLE adverts
+		// fire 10–30 Hz; we surface a single event every kPeerHeartbeatSec
+		// so the Flutter side can use the cadence as a liveness signal and
+		// prune peers that stop advertising (Nathaniel closed his app).
+		const auto now = std::chrono::steady_clock::now();
 		{
 			std::lock_guard<std::mutex> lock(seenMu_);
-			if (!seen_.insert(peerName).second) return;
+			auto& last = lastEmit_[peerName];
+			if (last.time_since_epoch().count() != 0 &&
+			    now - last < std::chrono::seconds(kPeerHeartbeatSec)) {
+				return;
+			}
+			last = now;
 		}
 		const std::string idStr = fallbackId ? std::string(fallbackId.UTF8String) : peerName;
 		BS_LOG_INFO(kComponent, "Found peer: name='{}' id={}", peerName, idStr);
@@ -185,17 +193,21 @@ private:
 		// didDiscoverPeripheral admits both the Apple ServiceUUID advert and
 		// the Windows ManufacturerData advert; filtering on the UUID at the
 		// controller would silently drop every Windows packet.
-		NSDictionary* opts = @{ CBCentralManagerScanOptionAllowDuplicatesKey : @NO };
+		// AllowDuplicates=YES so the heartbeat throttle in onPeerDiscovered
+		// keeps getting fresh callbacks while the peer is still advertising —
+		// without it CoreBluetooth emits one event per peripheral per scan
+		// session and we can't tell when a peer goes offline.
+		NSDictionary* opts = @{ CBCentralManagerScanOptionAllowDuplicatesKey : @YES };
 		[delegate_.central scanForPeripheralsWithServices:nil options:opts];
 	}
 
-	BSBleMacDelegate*               delegate_{nil};
-	dispatch_queue_t                queue_{nullptr};
-	std::function<void(Device)>     onFound_;
-	std::atomic<bool>               advertising_{false};
-	std::atomic<bool>               scanning_{false};
-	std::mutex                      seenMu_;
-	std::unordered_set<std::string> seen_;
+	BSBleMacDelegate*                                                       delegate_{nil};
+	dispatch_queue_t                                                        queue_{nullptr};
+	std::function<void(Device)>                                             onFound_;
+	std::atomic<bool>                                                       advertising_{false};
+	std::atomic<bool>                                                       scanning_{false};
+	std::mutex                                                              seenMu_;
+	std::unordered_map<std::string, std::chrono::steady_clock::time_point>  lastEmit_;
 };
 
 // ── Factory ───────────────────────────────────────────────────────────────────
