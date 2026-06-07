@@ -20,6 +20,13 @@
 #include <thread>
 #include <unordered_map>
 
+#if defined(_WIN32)
+// For winrt::init_apartment on the eager-host worker thread and for
+// catching winrt::hresult_error (which does NOT derive from std::exception
+// in the locally-installed Windows SDK).
+#include <winrt/base.h>
+#endif
+
 // ── bettersend_api.cpp ───────────────────────────────────────────────────────
 // C API surface exposed to Flutter via dart:ffi.
 //
@@ -141,7 +148,20 @@ char* heapCopy(const std::string& s) {
 
 #if defined(_WIN32)
 // Host-side bring-up (Windows in Phase 1). Idempotent — only runs once.
+// Serialized: the eager bring-up worker spawned by bettersend_start_discovery
+// and the onFound retry path can both reach this; without the mutex two
+// threads can read ctx.isHosting == false and race the broker/handshake.
+//
+// Exception safety: the WinRT calls inside broker->startHost() (the three
+// .get()'s on tethering async ops) and handshake->publishPayload() (Gatt
+// CreateAsync/CreateCharacteristicAsync/StartAdvertising) can throw
+// winrt::hresult_error, which does NOT derive from std::exception in the
+// locally-installed Windows SDK. We catch hresult_error explicitly so the
+// HRESULT is logged, std::exception for completeness, and (...) so nothing
+// can escape across the extern "C" FFI boundary.
 void ensureHostStarted(BetterSendContext& ctx, int port) {
+	static std::mutex hostStartMu;
+	std::lock_guard<std::mutex> lock(hostStartMu);
 	if (ctx.isHosting) return;
 	try {
 		ctx.hostCreds = ctx.broker->startHost();
@@ -155,8 +175,15 @@ void ensureHostStarted(BetterSendContext& ctx, int port) {
 		BS_LOG_INFO(kApiComponent,
 			"Host phase up: ssid='{}' hostIp={} port={}",
 			ctx.hostCreds.ssid, ctx.hostCreds.hostIp, port);
+	} catch (const winrt::hresult_error& e) {
+		BS_LOG_ERROR(kApiComponent,
+			"Host bring-up failed (hresult {:#x}): {}",
+			static_cast<uint32_t>(e.code().value),
+			winrt::to_string(e.message()));
 	} catch (const std::exception& e) {
 		BS_LOG_ERROR(kApiComponent, "Host bring-up failed: {}", e.what());
+	} catch (...) {
+		BS_LOG_ERROR(kApiComponent, "Host bring-up failed: unknown exception");
 	}
 }
 #endif
@@ -479,6 +506,40 @@ void bettersend_start_discovery(void* handle, DeviceFoundCallback onFound) {
 			}
 		});
 		BS_LOG_INFO("API", "Discovery started");
+
+#if defined(_WIN32)
+		// Eager host bring-up — breaks the chicken-and-egg deadlock between
+		// the Mac's BleHandshake_Mac (which scans BLE filtered by the
+		// BetterSend service UUID and only sees connectable peers) and the
+		// Windows side's GattServiceProvider (which only starts broadcasting
+		// the service UUID inside ensureHostStarted). Without this, the Mac
+		// sees Windows on ManufacturerData, kicks clientHandshakeAndJoin,
+		// and the handshake central times out for 20 s because no peripheral
+		// is yet advertising the service UUID — leading to "Empty GATT
+		// payload from <peer>" and no join. The onFound path below still
+		// calls ensureHostStarted as a retry if this first attempt failed.
+		//
+		// Runs on a DETACHED thread, NOT on the FFI caller thread:
+		// broker->startHost() blocks on three synchronous .get() calls
+		// (StopTetheringAsync/ConfigureAccessPointAsync/StartTetheringAsync)
+		// that routinely take 5–60 s; running them on the Dart isolate
+		// would freeze the watcher startup and the whole UI. The detached
+		// worker init's its own WinRT apartment because the brokers'
+		// constructors only init the apartment for the thread they were
+		// constructed on (the Dart isolate). ensureHostStarted is now
+		// serialized with a static mutex so the eager call and the
+		// onFound retry can't race.
+		std::thread([ctx]() {
+			try {
+				winrt::init_apartment(winrt::apartment_type::multi_threaded);
+			} catch (const winrt::hresult_error&) {
+				// already initialized on this thread — fine
+			}
+			BS_LOG_INFO("API", "Eager host bring-up: start");
+			BetterSend::ensureHostStarted(*ctx, BetterSend::kDefaultPort);
+			BS_LOG_INFO("API", "Eager host bring-up: end");
+		}).detach();
+#endif
 	} catch (const std::exception& e) {
 		BS_LOG_ERROR("API", "bettersend_start_discovery failed: {}", e.what());
 	}

@@ -1,8 +1,114 @@
 # Failed Attempts — Phase 1 Mac↔Windows Pairing
 
-> **Status:** at `a11a9e1` (== `80b10a7` source-wise). The 10 MB end-to-end transfer Windows↔Mac worked at this state. Every commit listed below was reverted on `2026-06-07` because together they regressed both discovery (Windows could no longer see the Mac in the nearby-devices list) **and** the transfer pipe (post-loading-UI flow never re-established a Wi-Fi join).
+> **Status:** baseline restored to `80b10a7` source, then one minimal targeted fix added on top — the **eager `ensureHostStarted` on a detached thread** described in [§ "The one targeted fix"](#the-one-targeted-fix-added-on-top-of-80b10a7) below. The 10 MB end-to-end transfer Windows↔Mac is the working bar this state targets.
+>
+> Every commit listed in [§ Reverted commits](#reverted-commits-newest--oldest--what-each-one-tried-and-why-it-didnt-stick) was force-deleted on `2026-06-07` because together they regressed both discovery (Windows could no longer see the Mac in the nearby-devices list) **and** the transfer pipe (post-loading-UI flow never re-established a Wi-Fi join).
 >
 > Read this before re-attempting any of these directions. Don't repeat them.
+
+---
+
+## The one targeted fix added on top of `80b10a7`
+
+When we restored `80b10a7` clean and Yonatan ran his Mac side, we hit a **real, structural deadlock that has always existed in this baseline** but was previously masked by lucky timing / hardware state:
+
+- `BleHandshake_Mac` scans BLE filtered by the BetterSend service UUID: `scanForPeripheralsWithServices:@[serviceUuid]`. It only sees peripherals whose advertisement carries that UUID — those are *connectable*. That's a deliberate design choice in [BleHandshake_Mac.mm:144–155](../cpp_core/src/BleHandshake_Mac.mm) — see the header comment "Filtering the scan by service UUID guarantees we only ever see the connectable peer."
+- On Windows, **only** `GattServiceProvider::StartAdvertising` carries the service UUID. The other Windows BLE channel — `BluetoothLEAdvertisementPublisher` with `ManufacturerData` (CompanyId + magic + name) — does NOT include the service UUID, and is non-connectable anyway.
+- `GattServiceProvider::StartAdvertising` only fires inside `ensureHostStarted` → `handshake->publishPayload(...)`.
+- At `80b10a7`, `ensureHostStarted` is called inside the `onFound` callback — i.e., only after Windows sees the Mac on BLE.
+- **But** the Mac's `BleDiscovery_Mac` continuously scans the BLE radio (`AllowDuplicates:YES`, `services:nil`) and the `BleHandshake_Mac` spins up its OWN `CBCentralManager` scanning the moment a peer is sighted — both running on Apple-silicon's shared BT/Wi-Fi antenna. That contention starves the Mac's own `CBPeripheralManager` advertise, so Windows' watcher often catches zero Mac packets in the first 20+ seconds.
+- Windows never sees Mac → never calls `ensureHostStarted` → GATT service never advertises → Mac's handshake central never finds a connectable peer → `fetchPayload` times out at 20 s → "Empty GATT payload from <peer>".
+
+Observed in the wild on `2026-06-07 17:55`:
+```
+17:55:28.769  [Mac][BleDisc] Found peer: name='NetanelTur'         ← Mac sees Windows
+17:55:28.771  [Mac][API]     Client handshake with 'NetanelTur'    ← auto-join kicks in
+17:55:28.771  [Mac][BleHand] fetchPayload: peerId=... timeout=20s  ← starts handshake central
+...
+17:55:48.774  [Mac][BleHand] fetchPayload timeout/empty            ← 20 s later, dead
+17:55:48.774  [Mac][API]     Empty GATT payload from 'NetanelTur'
+
+[Win][BleDisc] (no "Found peer:" line for the Mac at all)
+```
+
+### The fix
+
+In [bettersend_api.cpp::bettersend_start_discovery](../cpp_core/src/bettersend_api.cpp), AFTER `ctx->discovery->startDiscovery(...)` returns, spawn `BetterSend::ensureHostStarted(*ctx, kDefaultPort)` on a **detached worker thread**:
+
+```cpp
+ctx->discovery->startDiscovery([ctx, onFound](BetterSend::Device d) {
+    // ... existing onFound body (incl. the onFound-path ensureHostStarted retry) ...
+});
+BS_LOG_INFO("API", "Discovery started");
+
+#if defined(_WIN32)
+std::thread([ctx]() {
+    try {
+        winrt::init_apartment(winrt::apartment_type::multi_threaded);
+    } catch (const winrt::hresult_error&) { /* already initialized — fine */ }
+    BS_LOG_INFO("API", "Eager host bring-up: start");
+    BetterSend::ensureHostStarted(*ctx, BetterSend::kDefaultPort);
+    BS_LOG_INFO("API", "Eager host bring-up: end");
+}).detach();
+#endif
+```
+
+And inside `ensureHostStarted`:
+- A **`static std::mutex`** wraps the body so the eager call and the `onFound`-path retry can't race. The existing `if (ctx.isHosting) return;` is necessary but not sufficient under true concurrency.
+- A `catch (const winrt::hresult_error& e)` clause is added (logs the HRESULT + message). `winrt::hresult_error` does NOT derive from `std::exception` in the locally-installed Windows SDK (verified at `winrt/base.h:4721` — `struct hresult_error` has no base class), so without this catch a WinRT failure escapes across the FFI boundary into undefined territory.
+- A `catch (...)` clause is added as defense-in-depth.
+
+### Why this fix is safe even though commits 0c14b89 + 74bc358 (which tried similar things) are gone
+
+The commits we deleted made TWO mistakes that this targeted fix avoids:
+
+| 0c14b89's mistake | This fix |
+|---|---|
+| Ran `ensureHostStarted` synchronously BEFORE `startDiscovery`, blocking the FFI thread for 5–60 s on `StartTetheringAsync().get()` and starving the watcher of any Mac adverts during that window. | Runs `ensureHostStarted` on a detached thread that has no relationship to the FFI thread. The watcher comes up in milliseconds. |
+| Bundled with a Mac-side scan duty-cycle (55f2e28) that narrowed the advertise window to 1.5 s / 5.5 s — making "watcher starts late" fatal. | Touches Mac code zero. Mac stays at `80b10a7` baseline. |
+| Bundled with a deferred-join refactor (9e57042) that left the Mac never auto-connecting to the Windows hotspot. | The auto-join behavior of `80b10a7`'s `clientHandshakeAndJoin` is preserved unchanged. |
+
+The fix is ~25 lines in `bettersend_api.cpp` and nothing else.
+
+### How to know it's working
+
+In the C++ log on the Windows side, you should see, in order at startup:
+```
+[API] Discovery started
+[API] Eager host bring-up: start
+[HotspotBroker] startHost: bringing up Mobile Hotspot
+[HotspotBroker] Hotspot up: ssid='...' hostIp=192.168.137.1 ...
+[BleHand] publishPayload: <N> bytes
+[BleHand] GATT service advertising
+[API] Host phase up: ssid='...' hostIp=... port=9000
+[API] Eager host bring-up: end
+```
+And within seconds of the Mac running BetterSend:
+```
+[BleDisc] Found peer: name='Yonatans-MacBook.local' addr=...
+```
+plus, in the Mac log:
+```
+[BleHand] Connected; discovering services
+[BleHand] Read N bytes from peer
+[WifiClient] Joined SSID '...'
+[API] Hello from 'Yonatans-MacBook.local' @ 192.168.137.X
+```
+
+### Pre-flight check (do this before debugging anything else)
+
+If logs show `[BleDisc] Watcher Start failed: 0x800710df — The device is not ready for use.` and/or `[BleDisc] Advertise status: 5` (Aborted), the **Windows Bluetooth radio is in a not-ready state**. This is almost always caused by one of:
+
+1. **Windows Mobile Hotspot is currently `On`** — on Intel Wireless combo chips the AP-mode Wi-Fi clobbers the BT radio. The most common trigger is a previous run of the app's `ensureHostStarted` left tethering on, then BetterSend was relaunched. Turn it off in `Settings → Network → Mobile hotspot`, or run from PowerShell:
+   ```powershell
+   $prof = [Windows.Networking.Connectivity.NetworkInformation,Windows.Networking.Connectivity,ContentType=WindowsRuntime]::GetInternetConnectionProfile()
+   $mgr  = [Windows.Networking.NetworkOperators.NetworkOperatorTetheringManager,Windows.Networking.NetworkOperators,ContentType=WindowsRuntime]::CreateFromConnectionProfile($prof)
+   $op   = $mgr.StopTetheringAsync(); while ($op.Status -eq 0) { Start-Sleep -Milliseconds 200 }
+   ```
+2. **Bluetooth toggle is OFF in Settings** — turn it on BEFORE launching the app. If turned on mid-run the `Watcher.Start()` has already failed and the code does not retry.
+3. **Airplane mode on**.
+
+This is NOT a BetterSend bug — the code does the right thing and surfaces the underlying OS error. If you add a "retry watcher on radio-not-ready" loop later, scope it tight (a few attempts with backoff) so a genuinely-disabled radio doesn't burn a thread forever.
 
 ---
 
