@@ -104,3 +104,4 @@ GoogleService-Info.plist
 *.local.md
 *.local.ps1
 *.local.sh
+*.local.cmd
