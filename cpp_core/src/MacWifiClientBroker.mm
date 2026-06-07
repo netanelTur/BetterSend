@@ -2,31 +2,22 @@
 // macOS implementation of BetterSend::IConnectionBroker — client role only.
 // Built only when the host platform is Apple-desktop (CMakeLists.txt guard).
 //
-// Why this file is shaped like it is:
-//   - Apple's modern Wi-Fi join API, `NEHotspotConfiguration`, is iOS-only
-//     (`API_UNAVAILABLE(macos, tvos)` in the SDK headers). It does not exist
-//     on macOS, period. Anyone who tells you otherwise is wrong; the SDK
-//     header is the ground truth.
-//   - The legacy CoreWLAN path — `CWInterface scanForNetworksWithName:` +
-//     `associateToNetwork:password:error:` — is a dead-end on macOS 11+.
-//     The scan call returns "Resource busy" indefinitely regardless of BLE
-//     state. We tried three rounds of BLE-side mitigation (pause scan,
-//     pause advertise, nil-out both CBManagers + 4 s sleep) — none of them
-//     made `scanForNetworksWithName:` succeed.
-//   - The actually-working programmatic path on macOS is the
-//     `/usr/sbin/networksetup -setairportnetwork <iface> <ssid> <psk>`
-//     command. It is documented, ships with macOS, and bypasses the broken
-//     scan API entirely. We drive it via `NSTask` so we get exit status +
-//     stdout/stderr in the log.
+// Join strategy — direct CoreWLAN `associateToNetwork:password:error:`:
 //
-// Sandbox / signing notes:
-//   - Launching `/usr/sbin/networksetup` from a hardened sandboxed app is
-//     blocked. The Flutter Mac runner ships with sandbox=YES out of the
-//     box. We drop `com.apple.security.app-sandbox` in
-//     `DebugProfile.entitlements` + `Release.entitlements` so `NSTask` can
-//     execute the system binary. macOS may still surface a one-shot
-//     keychain / "Allow this app to control Wi-Fi" prompt on first use —
-//     subsequent joins are silent.
+//   1. The OS does not give us an SSID-only join API on macOS:
+//      `NEHotspotConfiguration` is iOS-only (`API_UNAVAILABLE(macos)` in
+//      the SDK header), and `networksetup -setairportnetwork` silently
+//      lies on macOS 14+ (`exit=0`, empty stdout, no actual association).
+//   2. The classic `CWInterface associateToNetwork:password:error:` takes
+//      a `CWNetwork*` and works fine — but the older code path obtained
+//      that `CWNetwork` via `scanForNetworksWithName:<ssid>`, which is a
+//      dead-end on Apple silicon: it returns `Resource busy` forever and
+//      no amount of BLE-side teardown clears it.
+//   3. A *nil-SSID* scan (`scanForNetworksWithSSID:nil`) is an open scan
+//      that returns every visible network and does NOT hit the broken
+//      busy state. We filter for our target SSID in code, hand the
+//      resulting `CWNetwork` to `associateToNetwork:`, and the OS handles
+//      auth + DHCP automatically. No user action needed.
 //
 // Host role isn't supported here — macOS Phase 1 is always the client.
 // `startHost()` throws to fail loudly on misuse.
@@ -52,103 +43,65 @@ NSString* toNs(const std::string& s) {
 	return [NSString stringWithUTF8String:s.c_str()];
 }
 
-// Resolve the active Wi-Fi interface name. On most Macs it's `en0`,
-// but Mac Pros / docks can shift it. `CWWiFiClient interfaceNames`
-// returns every adapter the OS recognises; the first one is the
-// primary Wi-Fi interface in practice.
-NSString* wifiInterfaceName() {
-	NSArray<NSString*>* names = [CWWiFiClient interfaceNames];
-	if (names.count > 0) return names.firstObject;
-	return @"en0";
-}
-
-// Drive `/usr/sbin/networksetup -setairportnetwork`. Returns true if the
-// command exits with status 0 AND its stdout does not contain a known
-// failure marker (`networksetup` exits 0 even on join failure and prints
-// the actual outcome to stdout — classic POSIX-shell mistake on Apple's
-// part, but we work around it).
-bool runNetworksetupJoin(NSString* iface, NSString* ssid, NSString* psk) {
-	NSTask* task = [[NSTask alloc] init];
-	task.launchPath = @"/usr/sbin/networksetup";
-	task.arguments  = @[ @"-setairportnetwork", iface, ssid, psk ];
-	NSPipe* outPipe = [NSPipe pipe];
-	NSPipe* errPipe = [NSPipe pipe];
-	task.standardOutput = outPipe;
-	task.standardError  = errPipe;
-
-	NSError* launchErr = nil;
-	if (@available(macOS 10.13, *)) {
-		[task launchAndReturnError:&launchErr];
-	} else {
-		@try { [task launch]; }
-		@catch (NSException* e) {
-			launchErr = [NSError errorWithDomain:NSPOSIXErrorDomain code:1
-				userInfo:@{ NSLocalizedDescriptionKey: e.reason ?: @"launch failed" }];
-		}
-	}
-	if (launchErr) {
-		BS_LOG_ERROR(kComponent, "NSTask launch failed: {}",
-			launchErr.localizedDescription.UTF8String);
-		return false;
-	}
-	[task waitUntilExit];
-
-	NSString* stdoutStr = [[NSString alloc]
-		initWithData:[outPipe.fileHandleForReading readDataToEndOfFile]
-		    encoding:NSUTF8StringEncoding] ?: @"";
-	NSString* stderrStr = [[NSString alloc]
-		initWithData:[errPipe.fileHandleForReading readDataToEndOfFile]
-		    encoding:NSUTF8StringEncoding] ?: @"";
-
-	BS_LOG_INFO(kComponent,
-		"networksetup exit={} stdout='{}' stderr='{}'",
-		static_cast<long>(task.terminationStatus),
-		stdoutStr.UTF8String, stderrStr.UTF8String);
-
-	if (task.terminationStatus != 0) return false;
-
-	NSString* combined = [stdoutStr stringByAppendingString:stderrStr];
-	NSArray<NSString*>* failureMarkers = @[
-		@"Failed to join",
-		@"Could not find",
-		@"not find network",
-		@"Error:",
-	];
-	for (NSString* m in failureMarkers) {
-		if ([combined rangeOfString:m options:NSCaseInsensitiveSearch].location != NSNotFound) {
-			return false;
-		}
-	}
-	return true;
-}
-
-// Warm the OS's known-network list with a fresh active scan.
-// `networksetup -setairportnetwork` only joins SSIDs the OS currently
-// believes are in range; if the host's beacon hasn't been seen in the
-// last few seconds, the join fails with "Could not find network …".
-// Unlike the SSID-filtered `scanForNetworksWithName:` (which returns
-// "Resource busy" indefinitely on Apple silicon and was the root cause
-// of the original Path B fallback), a nil-SSID scan is an open scan
-// that returns every visible network and succeeds reliably here.
-void primeScan() {
+// Find the target SSID in a fresh open scan and `associateToNetwork:`.
+// Returns true on a CoreWLAN-reported successful association. DHCP can
+// still lag; the caller's `waitForSsid` poll covers that window.
+bool joinViaCoreWLAN(NSString* ssid, NSString* psk) {
 	@autoreleasepool {
 		CWInterface* iface = [[CWWiFiClient sharedWiFiClient] interface];
-		if (!iface) return;
-		NSError* scanErr = nil;
-		NSSet* results = [iface scanForNetworksWithSSID:nil error:&scanErr];
-		if (scanErr) {
-			BS_LOG_DEBUG(kComponent, "Prime scan error: {}",
-				scanErr.localizedDescription.UTF8String);
-		} else {
-			BS_LOG_DEBUG(kComponent, "Prime scan: {} networks visible",
-				static_cast<unsigned long>(results.count));
+		if (!iface) {
+			BS_LOG_ERROR(kComponent, "No CWInterface available");
+			return false;
 		}
+		if (!iface.powerOn) {
+			NSError* powerErr = nil;
+			[iface setPower:YES error:&powerErr];
+			if (powerErr) {
+				BS_LOG_ERROR(kComponent, "setPower failed: {}",
+					powerErr.localizedDescription.UTF8String);
+				return false;
+			}
+		}
+
+		NSError* scanErr = nil;
+		// nil SSID = open scan, returns every visible network. Reliable.
+		NSSet<CWNetwork*>* nets = [iface scanForNetworksWithSSID:nil error:&scanErr];
+		if (scanErr) {
+			BS_LOG_ERROR(kComponent, "Open scan failed: {}",
+				scanErr.localizedDescription.UTF8String);
+			return false;
+		}
+		BS_LOG_DEBUG(kComponent, "Open scan: {} networks visible",
+			static_cast<unsigned long>(nets.count));
+
+		CWNetwork* target = nil;
+		for (CWNetwork* n in nets) {
+			if ([n.ssid isEqualToString:ssid]) { target = n; break; }
+		}
+		if (!target) {
+			BS_LOG_ERROR(kComponent,
+				"SSID '{}' not in open-scan results", ssid.UTF8String);
+			return false;
+		}
+
+		NSError* assocErr = nil;
+		BOOL ok = [iface associateToNetwork:target
+		                           password:psk
+		                              error:&assocErr];
+		if (!ok) {
+			BS_LOG_ERROR(kComponent,
+				"associateToNetwork failed: {} (code={})",
+				assocErr ? assocErr.localizedDescription.UTF8String : "unknown",
+				assocErr ? static_cast<long>(assocErr.code) : 0L);
+			return false;
+		}
+		return true;
 	}
 }
 
 // Poll CWWiFiClient until the active SSID matches `expected`. DHCP and
-// the interface activation can lag the `networksetup` exit by a second
-// or two on cold starts.
+// interface activation can lag `associateToNetwork:` by a second or two
+// on cold starts.
 bool waitForSsid(NSString* expected, int timeoutMs) {
 	constexpr int kPollMs = 250;
 	int waited = 0;
@@ -184,50 +137,50 @@ public:
 			if (current && [current.ssid isEqualToString:nsSsid]) {
 				joinedSsid_ = ssid;
 				BS_LOG_INFO(kComponent,
-					"Already on '{}', skipping networksetup join", ssid);
+					"Already on '{}', skipping associateToNetwork", ssid);
 				return true;
 			}
 
-			NSString* iface = wifiInterfaceName();
 			BS_LOG_INFO(kComponent,
-				"networksetup -setairportnetwork {} '{}' (psk redacted)",
-				iface.UTF8String, ssid);
+				"associateToNetwork '{}' (psk redacted, len={})",
+				ssid, static_cast<unsigned long>(nsPsk.length));
 
-			// Retry the join a few times. The first attempt right after
-			// the BLE handshake often races: the OS has not yet seen the
-			// host's beacon, networksetup prints "Could not find network",
-			// then a fresh scan + retry succeeds within a few seconds.
-			constexpr int kJoinAttempts = 5;
+			// Retry the whole open-scan + associate cycle a few times — the
+			// first attempt right after the BLE handshake can land before
+			// the host's first Wi-Fi beacon has reached the Mac's radio.
+			constexpr int kJoinAttempts  = 5;
 			constexpr int kJoinBackoffMs = 2000;
-			bool joined = false;
+			bool associated = false;
 			for (int attempt = 1; attempt <= kJoinAttempts; ++attempt) {
-				primeScan();
-				if (runNetworksetupJoin(iface, nsSsid, nsPsk)) {
-					joined = true;
+				if (joinViaCoreWLAN(nsSsid, nsPsk)) {
+					associated = true;
+					BS_LOG_INFO(kComponent,
+						"associateToNetwork '{}' OK on attempt {}",
+						ssid, attempt);
 					break;
 				}
 				BS_LOG_WARN(kComponent,
-					"networksetup join attempt {} for '{}' failed; retrying in {} ms",
+					"Join attempt {} for '{}' failed; retrying in {} ms",
 					attempt, ssid, kJoinBackoffMs);
 				std::this_thread::sleep_for(
 					std::chrono::milliseconds(kJoinBackoffMs));
 			}
-			if (!joined) {
+			if (!associated) {
 				BS_LOG_ERROR(kComponent,
-					"networksetup join of '{}' failed after {} attempts",
+					"Join of '{}' failed after {} attempts",
 					ssid, kJoinAttempts);
 				return false;
 			}
 
 			if (!waitForSsid(nsSsid, 10000)) {
 				BS_LOG_ERROR(kComponent,
-					"networksetup reported success but interface.ssid never matched '{}' within 10 s",
+					"associateToNetwork returned OK but interface.ssid never matched '{}' within 10 s",
 					ssid);
 				return false;
 			}
 
 			joinedSsid_ = ssid;
-			BS_LOG_INFO(kComponent, "Joined '{}' via networksetup", ssid);
+			BS_LOG_INFO(kComponent, "Joined '{}' via CoreWLAN", ssid);
 			return true;
 		}
 	}
@@ -237,8 +190,6 @@ public:
 		@autoreleasepool {
 			CWInterface* iface = [[CWWiFiClient sharedWiFiClient] interface];
 			if (iface) {
-				// Disassociate is silent + idempotent. We don't power Wi-Fi
-				// off — the user may rely on it for everything else.
 				[iface disassociate];
 				BS_LOG_INFO(kComponent,
 					"Disassociated from '{}'", joinedSsid_);
