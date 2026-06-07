@@ -1,23 +1,35 @@
 // ── MacWifiClientBroker.mm ───────────────────────────────────────────────────
 // macOS implementation of BetterSend::IConnectionBroker — client role only.
-// Built only when the host platform is Apple-desktop (see CMakeLists.txt
-// guard).
+// Built only when the host platform is Apple-desktop (CMakeLists.txt guard).
 //
-// Joins an existing Wi-Fi SSID (the one the Windows peer brought up via
-// WindowsHotspotBroker) via CoreWLAN
-// `CWInterface associateToNetwork:password:error:`.
+// Why this file is shaped like it is:
+//   - Apple's modern Wi-Fi join API, `NEHotspotConfiguration`, is iOS-only
+//     (`API_UNAVAILABLE(macos, tvos)` in the SDK headers). It does not exist
+//     on macOS, period. Anyone who tells you otherwise is wrong; the SDK
+//     header is the ground truth.
+//   - The legacy CoreWLAN path — `CWInterface scanForNetworksWithName:` +
+//     `associateToNetwork:password:error:` — is a dead-end on macOS 11+.
+//     The scan call returns "Resource busy" indefinitely regardless of BLE
+//     state. We tried three rounds of BLE-side mitigation (pause scan,
+//     pause advertise, nil-out both CBManagers + 4 s sleep) — none of them
+//     made `scanForNetworksWithName:` succeed.
+//   - The actually-working programmatic path on macOS is the
+//     `/usr/sbin/networksetup -setairportnetwork <iface> <ssid> <psk>`
+//     command. It is documented, ships with macOS, and bypasses the broken
+//     scan API entirely. We drive it via `NSTask` so we get exit status +
+//     stdout/stderr in the log.
 //
-// Notes for Phase 1:
-//   - macOS does NOT expose a programmatic API to start a Wi-Fi hotspot.
-//     Apple gates that behind the System Settings UI. That's why the tie-
-//     break in CLAUDE.md / plan.md is "Windows always hosts when present".
-//     The host role here throws on call — misuse from the higher layer
-//     fails loudly instead of silently doing nothing.
-//   - `associateToNetwork:` may show a one-shot system prompt the first
-//     time the app asks to join an unknown SSID. Subsequent joins are
-//     silent.
-//   - Wi-Fi must be powered on. If `[CWInterface power]` is NO we flip
-//     it on before scanning so the join can succeed on a cold start.
+// Sandbox / signing notes:
+//   - Launching `/usr/sbin/networksetup` from a hardened sandboxed app is
+//     blocked. The Flutter Mac runner ships with sandbox=YES out of the
+//     box. We drop `com.apple.security.app-sandbox` in
+//     `DebugProfile.entitlements` + `Release.entitlements` so `NSTask` can
+//     execute the system binary. macOS may still surface a one-shot
+//     keychain / "Allow this app to control Wi-Fi" prompt on first use —
+//     subsequent joins are silent.
+//
+// Host role isn't supported here — macOS Phase 1 is always the client.
+// `startHost()` throws to fail loudly on misuse.
 
 #import <Foundation/Foundation.h>
 #import <CoreWLAN/CoreWLAN.h>
@@ -40,33 +52,89 @@ NSString* toNs(const std::string& s) {
 	return [NSString stringWithUTF8String:s.c_str()];
 }
 
-CWNetwork* findNetwork(CWInterface* iface, NSString* ssid) {
-	// scanForNetworksWithName: returns matches in one pass; if the radio
-	// missed the beacon — or BT contention left the Wi-Fi scanner
-	// "Resource busy" — we back off and try again. The Windows hotspot
-	// often takes a few seconds to become visible after StartTetheringAsync
-	// returns, so a longer window helps cold starts.
-	constexpr int kAttempts        = 6;
-	constexpr int kBackoffMs       = 1500;
-	constexpr int kBusyBackoffMs   = 2500;
-	for (int attempt = 0; attempt < kAttempts; ++attempt) {
-		NSError* scanErr = nil;
-		NSSet<CWNetwork*>* found = [iface scanForNetworksWithName:ssid error:&scanErr];
-		if (scanErr) {
-			const char* desc = scanErr.localizedDescription.UTF8String;
-			BS_LOG_WARN(kComponent, "scan attempt {} failed: {}", attempt, desc);
-			const bool resourceBusy =
-				desc && std::string(desc).find("Resource busy") != std::string::npos;
-			std::this_thread::sleep_for(std::chrono::milliseconds(
-				resourceBusy ? kBusyBackoffMs : kBackoffMs));
-			continue;
+// Resolve the active Wi-Fi interface name. On most Macs it's `en0`,
+// but Mac Pros / docks can shift it. `CWWiFiClient interfaceNames`
+// returns every adapter the OS recognises; the first one is the
+// primary Wi-Fi interface in practice.
+NSString* wifiInterfaceName() {
+	NSArray<NSString*>* names = [CWWiFiClient interfaceNames];
+	if (names.count > 0) return names.firstObject;
+	return @"en0";
+}
+
+// Drive `/usr/sbin/networksetup -setairportnetwork`. Returns true if the
+// command exits with status 0 AND its stdout does not contain a known
+// failure marker (`networksetup` exits 0 even on join failure and prints
+// the actual outcome to stdout — classic POSIX-shell mistake on Apple's
+// part, but we work around it).
+bool runNetworksetupJoin(NSString* iface, NSString* ssid, NSString* psk) {
+	NSTask* task = [[NSTask alloc] init];
+	task.launchPath = @"/usr/sbin/networksetup";
+	task.arguments  = @[ @"-setairportnetwork", iface, ssid, psk ];
+	NSPipe* outPipe = [NSPipe pipe];
+	NSPipe* errPipe = [NSPipe pipe];
+	task.standardOutput = outPipe;
+	task.standardError  = errPipe;
+
+	NSError* launchErr = nil;
+	if (@available(macOS 10.13, *)) {
+		[task launchAndReturnError:&launchErr];
+	} else {
+		@try { [task launch]; }
+		@catch (NSException* e) {
+			launchErr = [NSError errorWithDomain:NSPOSIXErrorDomain code:1
+				userInfo:@{ NSLocalizedDescriptionKey: e.reason ?: @"launch failed" }];
 		}
-		for (CWNetwork* net in found) {
-			if ([net.ssid isEqualToString:ssid]) return net;
-		}
-		std::this_thread::sleep_for(std::chrono::milliseconds(kBackoffMs));
 	}
-	return nil;
+	if (launchErr) {
+		BS_LOG_ERROR(kComponent, "NSTask launch failed: {}",
+			launchErr.localizedDescription.UTF8String);
+		return false;
+	}
+	[task waitUntilExit];
+
+	NSString* stdoutStr = [[NSString alloc]
+		initWithData:[outPipe.fileHandleForReading readDataToEndOfFile]
+		    encoding:NSUTF8StringEncoding] ?: @"";
+	NSString* stderrStr = [[NSString alloc]
+		initWithData:[errPipe.fileHandleForReading readDataToEndOfFile]
+		    encoding:NSUTF8StringEncoding] ?: @"";
+
+	BS_LOG_INFO(kComponent,
+		"networksetup exit={} stdout='{}' stderr='{}'",
+		static_cast<long>(task.terminationStatus),
+		stdoutStr.UTF8String, stderrStr.UTF8String);
+
+	if (task.terminationStatus != 0) return false;
+
+	NSString* combined = [stdoutStr stringByAppendingString:stderrStr];
+	NSArray<NSString*>* failureMarkers = @[
+		@"Failed to join",
+		@"Could not find",
+		@"not find network",
+		@"Error:",
+	];
+	for (NSString* m in failureMarkers) {
+		if ([combined rangeOfString:m options:NSCaseInsensitiveSearch].location != NSNotFound) {
+			return false;
+		}
+	}
+	return true;
+}
+
+// Poll CWWiFiClient until the active SSID matches `expected`. DHCP and
+// the interface activation can lag the `networksetup` exit by a second
+// or two on cold starts.
+bool waitForSsid(NSString* expected, int timeoutMs) {
+	constexpr int kPollMs = 250;
+	int waited = 0;
+	while (waited < timeoutMs) {
+		CWInterface* iface = [[CWWiFiClient sharedWiFiClient] interface];
+		if (iface && [iface.ssid isEqualToString:expected]) return true;
+		std::this_thread::sleep_for(std::chrono::milliseconds(kPollMs));
+		waited += kPollMs;
+	}
+	return false;
 }
 
 } // namespace
@@ -84,39 +152,38 @@ public:
 
 	bool joinNetwork(const std::string& ssid, const std::string& psk) override {
 		@autoreleasepool {
-			CWInterface* iface = [[CWWiFiClient sharedWiFiClient] interface];
-			if (!iface) {
-				BS_LOG_ERROR(kComponent, "No CWInterface available");
-				return false;
-			}
-			if (!iface.powerOn) {
-				NSError* powerErr = nil;
-				[iface setPower:YES error:&powerErr];
-				if (powerErr) {
-					BS_LOG_ERROR(kComponent, "setPower failed: {}",
-						powerErr.localizedDescription.UTF8String);
-					return false;
-				}
-			}
-
 			NSString* nsSsid = toNs(ssid);
 			NSString* nsPsk  = toNs(psk);
 
-			CWNetwork* net = findNetwork(iface, nsSsid);
-			if (!net) {
-				BS_LOG_ERROR(kComponent, "SSID '{}' not visible after scans", ssid);
+			// Fast path: already on the target network.
+			CWInterface* current = [[CWWiFiClient sharedWiFiClient] interface];
+			if (current && [current.ssid isEqualToString:nsSsid]) {
+				joinedSsid_ = ssid;
+				BS_LOG_INFO(kComponent,
+					"Already on '{}', skipping networksetup join", ssid);
+				return true;
+			}
+
+			NSString* iface = wifiInterfaceName();
+			BS_LOG_INFO(kComponent,
+				"networksetup -setairportnetwork {} '{}' (psk redacted)",
+				iface.UTF8String, ssid);
+
+			if (!runNetworksetupJoin(iface, nsSsid, nsPsk)) {
+				BS_LOG_ERROR(kComponent,
+					"networksetup join of '{}' failed", ssid);
 				return false;
 			}
 
-			NSError* assocErr = nil;
-			BOOL ok = [iface associateToNetwork:net password:nsPsk error:&assocErr];
-			if (!ok) {
-				BS_LOG_ERROR(kComponent, "associateToNetwork failed: {}",
-					assocErr ? assocErr.localizedDescription.UTF8String : "unknown");
+			if (!waitForSsid(nsSsid, 10000)) {
+				BS_LOG_ERROR(kComponent,
+					"networksetup reported success but interface.ssid never matched '{}' within 10 s",
+					ssid);
 				return false;
 			}
+
 			joinedSsid_ = ssid;
-			BS_LOG_INFO(kComponent, "Joined '{}'", ssid);
+			BS_LOG_INFO(kComponent, "Joined '{}' via networksetup", ssid);
 			return true;
 		}
 	}
@@ -126,10 +193,11 @@ public:
 		@autoreleasepool {
 			CWInterface* iface = [[CWWiFiClient sharedWiFiClient] interface];
 			if (iface) {
-				// disassociate is silent and idempotent. We don't power Wi-Fi
+				// Disassociate is silent + idempotent. We don't power Wi-Fi
 				// off — the user may rely on it for everything else.
 				[iface disassociate];
-				BS_LOG_INFO(kComponent, "Disassociated from '{}'", joinedSsid_);
+				BS_LOG_INFO(kComponent,
+					"Disassociated from '{}'", joinedSsid_);
 			}
 		}
 		joinedSsid_.clear();

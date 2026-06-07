@@ -2,8 +2,17 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!--
+	    BetterSend Phase 1 Path A: sandbox is disabled so the C++ core can
+	    launch /usr/sbin/networksetup via NSTask to programmatically join
+	    the Windows-side hotspot. macOS does not expose a sandbox-friendly
+	    Wi-Fi join API (NEHotspotConfiguration is iOS-only; CoreWLAN's
+	    associateToNetwork: is broken — returns "Resource busy" forever).
+	    NSTask cannot launch system binaries from a hardened sandboxed app,
+	    so the sandbox key must be NO for the auto-join flow to work.
+	-->
 	<key>com.apple.security.app-sandbox</key>
-	<true/>
+	<false/>
 	<key>com.apple.security.cs.allow-jit</key>
 	<true/>
 	<key>com.apple.security.network.client</key>

@@ -164,25 +164,22 @@ void ensureHostStarted(BetterSendContext& ctx, int port) {
 #if defined(__APPLE__)
 // Client-side bring-up (Mac in Phase 1). One-shot per peer.
 //
-// Phase 1 — Path B (manual Wi-Fi join):
-//   The principled programmatic join — CoreWLAN
-//   `scanForNetworksWithName:` + `associateToNetwork:` — is a dead-end API
-//   on Apple silicon: it returns "Resource busy" forever whenever any BLE
-//   role is alive on the radio, and Apple has been pushing developers off
-//   it for years. The replacement (`NEHotspotConfiguration`) needs an
-//   entitlement and a provisioning round-trip; until that lands we do not
-//   touch the OS Wi-Fi state at all.
+// Phase 1 — Path A (NEHotspotConfiguration auto-join):
+//   After the BLE/GATT handshake delivers {ssid, psk, hostIp, port}, the
+//   Mac immediately calls `broker->joinNetwork(...)` — which is now the
+//   `MacWifiClientBroker` impl built on `NEHotspotConfiguration` (the
+//   modern macOS Wi-Fi API). The OS handles scan + associate + DHCP
+//   internally; the user does NOT need to touch the Wi-Fi menu. First
+//   join per SSID may surface a one-shot system "Allow this app to join
+//   <ssid>?" dialog; subsequent joins on the same SSID are silent.
 //
-//   Instead, after the BLE/GATT handshake delivers {ssid, psk, hostIp,
-//   port}, we surface the credentials in the log, cache the hotspot IP on
-//   the peer record, and loop attempting the Hello packet to the host
-//   every kHelloRetrySec seconds. The user joins the hotspot from the
-//   macOS Wi-Fi menu; as soon as routing is up, the next send() succeeds
-//   and Windows learns the Mac's hotspot-subnet IP via
-//   socket.remote_endpoint() — which is the missing piece for the
-//   bidirectional file transfer path.
-constexpr int kHelloRetrySec    = 2;
-constexpr int kHelloMaxAttempts = 60;  // ~2 min total
+//   Once the broker reports a successful join, a short retry loop
+//   (`kHelloAfterJoinRetries × kHelloRetryMs`) waits for Windows's TCP
+//   server to become reachable on the hotspot subnet — DHCP can lag the
+//   join completion by a second or two — and fires the Hello so the
+//   host learns the Mac's hotspot IP via `socket.remote_endpoint()`.
+constexpr int kHelloAfterJoinRetries = 10;
+constexpr int kHelloRetryMs          = 1000;
 
 void clientHandshakeAndJoin(BetterSendContext& ctx, const Device& peer) {
 	try {
@@ -204,14 +201,12 @@ void clientHandshakeAndJoin(BetterSendContext& ctx, const Device& peer) {
 			return;
 		}
 
-		// Release the handshake central — its job is done. Keep the
-		// discovery scan + peripheral advertise running so the peer stays
-		// visible across the manual-join window.
+		// Release the handshake central — its job is done.
 		ctx.handshake->stop();
 
 		// Cache the host's hotspot-subnet address so the transfer code can
-		// already address it; helloSent stays false until a real round-trip
-		// confirms Wi-Fi routing is up.
+		// already address it; helloSent stays false until the first real
+		// round-trip confirms Wi-Fi routing is up.
 		{
 			std::lock_guard lock(ctx.peersMu);
 			auto& info  = ctx.peersByName[peer.name];
@@ -220,33 +215,33 @@ void clientHandshakeAndJoin(BetterSendContext& ctx, const Device& peer) {
 			info.port   = hostPort;
 		}
 
-		BS_LOG_WARN(kApiComponent,
-			"Manual Wi-Fi join required: open the macOS Wi-Fi menu, pick "
-			"SSID '{}' (password '{}'), then BetterSend will pair "
-			"automatically.", ssid, psk);
+		if (!ctx.broker->joinNetwork(ssid, psk)) {
+			BS_LOG_ERROR(kApiComponent,
+				"joinNetwork('{}') failed; aborting handshake. Mac will "
+				"retry on the next BLE sighting per kPeerRetrySec.", ssid);
+			return;
+		}
 
+		// DHCP and the Windows TCP listener may take a moment to become
+		// reachable after the join completes. Retry the Hello briefly so
+		// the user-visible delay between joining and pair-ready stays tight.
 		TextTransferable hello{helloBody(ctx.localDeviceName)};
-		for (int attempt = 1; attempt <= kHelloMaxAttempts; ++attempt) {
-			std::this_thread::sleep_for(std::chrono::seconds(kHelloRetrySec));
+		for (int attempt = 1; attempt <= kHelloAfterJoinRetries; ++attempt) {
+			std::this_thread::sleep_for(std::chrono::milliseconds(kHelloRetryMs));
 			if (ctx.transport->send(hostIp, hostPort, hello)) {
 				{
 					std::lock_guard lock(ctx.peersMu);
 					ctx.peersByName[peer.name].helloSent = true;
 				}
 				BS_LOG_INFO(kApiComponent,
-					"Sent Hello to host {}:{} (attempt {})",
+					"Sent Hello to host {}:{} (attempt {} after join)",
 					hostIp, hostPort, attempt);
 				return;
 			}
-			BS_LOG_DEBUG(kApiComponent,
-				"Hello attempt {} not yet routable; still waiting for the "
-				"user to join the host hotspot.", attempt);
 		}
 		BS_LOG_ERROR(kApiComponent,
-			"Gave up Hello loop for '{}' after {} attempts (~{}s); peer "
-			"will retry on next BLE sighting per cooldown.",
-			peer.name, kHelloMaxAttempts,
-			kHelloMaxAttempts * kHelloRetrySec);
+			"Hello to '{}' failed after join; peer will retry on next BLE sighting",
+			peer.name);
 	} catch (const std::exception& e) {
 		BS_LOG_ERROR(kApiComponent, "Client handshake failed: {}", e.what());
 	}
