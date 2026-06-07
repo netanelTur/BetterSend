@@ -19,7 +19,7 @@ public:
 	~TcpTransport() override;
 
 	void startServer(int port, std::function<void(Transfer)> onReceive) override;
-	void send(const std::string& ip, int port, const ITransferable& item) override;
+	bool send(const std::string& ip, int port, const ITransferable& item) override;
 	void stop() override;
 
 private:

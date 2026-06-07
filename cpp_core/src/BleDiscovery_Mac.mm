@@ -138,54 +138,52 @@ public:
 		}
 	}
 
-	// Pause / resume releases the entire CBCentralManager / CBPeripheralManager
-	// during the Wi-Fi handoff window. Just calling stopScan / stopAdvertising
-	// is NOT enough on Apple silicon — the still-allocated managers keep the
-	// BT framework holding the shared radio, and CoreWLAN's
-	// scanForNetworksWithName: blocks with "Resource busy" for tens of seconds.
-	// Dropping the manager objects (ARC dealloc) forces the BT subsystem to
-	// release its grip; the resume path allocates new managers, which power
-	// back on in ~50–100 ms (peripheralManagerDidUpdateState → kickAdvertise).
+	// Pause / resume the BLE roles around an external operation that needs
+	// the shared radio (today: future programmatic Wi-Fi join via
+	// NEHotspotConfiguration — Phase 1 Path B leaves the user to join the
+	// hotspot from the Wi-Fi menu and does not call these). Just stop/start
+	// the scan or advertise without tearing down the manager objects: the
+	// over-engineered "nil out CBCentralManager / CBPeripheralManager
+	// during the handoff" trick was an attempt to clear CoreWLAN's
+	// "Resource busy" on Apple silicon, but `scanForNetworksWithName:` is a
+	// dead-end API in 2026 regardless. The principled fix is
+	// NEHotspotConfiguration, which doesn't need BLE to release the radio.
 	void pauseScan() override {
 		@autoreleasepool {
-			if (delegate_.central) {
-				if (delegate_.central.isScanning) [delegate_.central stopScan];
-				delegate_.central.delegate = nil;
-				delegate_.central = nil;
-				BS_LOG_DEBUG(kComponent, "Scan paused (central released)");
+			if (delegate_.central && delegate_.central.isScanning) {
+				[delegate_.central stopScan];
+				BS_LOG_DEBUG(kComponent, "Scan paused");
 			}
 		}
 	}
 
 	void resumeScan() override {
 		@autoreleasepool {
-			if (delegate_.wantScan && !delegate_.central) {
-				delegate_.central = [[CBCentralManager alloc]
-					initWithDelegate:delegate_ queue:queue_];
-				BS_LOG_DEBUG(kComponent, "Scan resumed (central recreated)");
+			if (delegate_.wantScan
+			    && delegate_.central
+			    && delegate_.central.state == CBManagerStatePoweredOn) {
+				kickScan();
+				BS_LOG_DEBUG(kComponent, "Scan resumed");
 			}
 		}
 	}
 
 	void pauseAdvertise() override {
 		@autoreleasepool {
-			if (delegate_.peripheral) {
-				if (delegate_.peripheral.isAdvertising) {
-					[delegate_.peripheral stopAdvertising];
-				}
-				delegate_.peripheral.delegate = nil;
-				delegate_.peripheral = nil;
-				BS_LOG_DEBUG(kComponent, "Advertise paused (peripheral released)");
+			if (delegate_.peripheral && delegate_.peripheral.isAdvertising) {
+				[delegate_.peripheral stopAdvertising];
+				BS_LOG_DEBUG(kComponent, "Advertise paused");
 			}
 		}
 	}
 
 	void resumeAdvertise() override {
 		@autoreleasepool {
-			if (delegate_.wantAdvertise && !delegate_.peripheral) {
-				delegate_.peripheral = [[CBPeripheralManager alloc]
-					initWithDelegate:delegate_ queue:queue_];
-				BS_LOG_DEBUG(kComponent, "Advertise resumed (peripheral recreated)");
+			if (delegate_.wantAdvertise
+			    && delegate_.peripheral
+			    && delegate_.peripheral.state == CBManagerStatePoweredOn) {
+				kickAdvertise();
+				BS_LOG_DEBUG(kComponent, "Advertise resumed");
 			}
 		}
 	}

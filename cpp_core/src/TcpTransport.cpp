@@ -202,7 +202,7 @@ void TcpTransport::startServer(int port, std::function<void(Transfer)> onReceive
 	});
 }
 
-void TcpTransport::send(const std::string& ip, int port, const ITransferable& item) {
+bool TcpTransport::send(const std::string& ip, int port, const ITransferable& item) {
 	BS_LOG_INFO(kComponent, "Sending to {}:{}", ip, port);
 	try {
 		const auto headerStruct = item.makeHeader(localDeviceName_);
@@ -216,7 +216,7 @@ void TcpTransport::send(const std::string& ip, int port, const ITransferable& it
 		auto addr = asio::ip::make_address(ip, ec);
 		if (ec) {
 			BS_LOG_ERROR(kComponent, "Bad IP '{}': {}", ip, ec.message());
-			return;
+			return false;
 		}
 		sock.connect(asio::ip::tcp::endpoint(addr, static_cast<uint16_t>(port)));
 
@@ -229,8 +229,10 @@ void TcpTransport::send(const std::string& ip, int port, const ITransferable& it
 
 		BS_LOG_INFO(kComponent, "Sent {} bytes header + {} bytes payload",
 			encoded.size(), payload.size());
+		return true;
 	} catch (const std::exception& e) {
 		BS_LOG_ERROR(kComponent, "send failed: {}", e.what());
+		return false;
 	}
 }
 

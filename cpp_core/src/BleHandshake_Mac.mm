@@ -133,17 +133,6 @@ public:
 					[delegate_.central cancelPeripheralConnection:delegate_.target];
 					delegate_.target = nil;
 				}
-				// Force-release the CBCentralManager so the BT subsystem
-				// drops its hold on the shared Apple silicon radio. Without
-				// this, the manager keeps the BT framework "online" even
-				// after stopScan + cancelPeripheralConnection, and CoreWLAN's
-				// scanForNetworksWithName: fails with "Resource busy" for
-				// tens of seconds. Next fetchPayload allocates a fresh one.
-				if (delegate_.central) {
-					delegate_.central.delegate = nil;
-					delegate_.central = nil;
-					BS_LOG_DEBUG(kHandshakeComponent, "Central released");
-				}
 			}
 		}
 	}

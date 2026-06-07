@@ -433,8 +433,8 @@
     <span style="background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;">Future — Cloud Room</span>
   </div>
   <div class="meta">
-    <span>עדכון אחרון: 2026-06-04 (Phase 1 BT release — nil-out CBManagers during Wi-Fi handoff to clear "Resource busy")</span>
-    <span>שלב פעיל: Phase 1 — צינור מלא: BLE discovery → GATT handshake → Hotspot bring-up → CoreWLAN join → TCP. Control plane של request/accept/decline פעיל. המקבל מאשר/דוחה לפני העברת קובץ.</span>
+    <span>עדכון אחרון: 2026-06-07 (Phase 1 Path B — manual Wi-Fi join + Hello retry; CoreWLAN join stripped, Fix 3 nil-out reverted)</span>
+    <span>שלב פעיל: Phase 1 — צינור: BLE discovery → GATT handshake → המשתמש מצטרף ל-hotspot ידנית מתפריט Wi-Fi של macOS → לולאת Hello עד שהיא מצליחה → TCP. Control plane של request/accept/decline פעיל; הקפיצה האוטומטית ל-Wi-Fi מחכה ל-NEHotspotConfiguration ב-Path A.</span>
   </div>
 </div>
 
@@ -653,13 +653,17 @@
       </div>
     </div>
     <div class="code-row highlight">
-      <div class="code-cell">  <span class="kw">virtual void</span> <span class="fn">send</span>(<span class="kw">const</span> <span class="ty">std::string</span>&amp; ip, <span class="ty">int</span> port,
+      <div class="code-cell">  <span class="kw">virtual bool</span> <span class="fn">send</span>(<span class="kw">const</span> <span class="ty">std::string</span>&amp; ip, <span class="ty">int</span> port,
                <span class="kw">const</span> <span class="ty">ITransferable</span>&amp; item) = <span class="nm">0</span>;</div>
       <div class="anno-cell key">
         <div>
           OCP בפעולה: Transport לא יודע אם <code>item</code> הוא קובץ, טקסט, או כל דבר אחר.
           הוא פשוט קורא <code>item.makeHeader()</code> + <code>item.payload()</code>.
           להוסיף סוג חדש = לא לשנות שורה זו.
+          <br/><br/>
+          <strong>חתימה מחזירה <code>bool</code></strong> מאז 2026-06-07 Path B: <code>true</code> = connect + write עברו בהצלחה,
+          <code>false</code> = ה-peer לא נגיש (port closed, IP לא נתיב, exception). לולאת ה-Hello של Mac בודקת
+          את הערך החזרה כדי לדעת מתי המשתמש סיים להצטרף לרשת של ה-host. callers שזורקים-ושוכחים יכולים פשוט להתעלם.
         </div>
       </div>
     </div>
@@ -1999,10 +2003,16 @@ nlohmann::json::parse(data[4..4+jsonLen]);</div>
     handshake->publishPayload(JSON)
 #elif __APPLE__
   thread { clientHandshakeAndJoin(ctx, peer):
-    handshake->fetchPayload(peerId, 20s)
-    broker->joinNetwork(ssid, psk)
-    sleep(1.5s)  // DHCP
-    transport->send(hostIp, port, TextTransferable{Hello})
+    payload = handshake->fetchPayload(peerId, 20s)
+    parse {ssid, psk, hostIp, port}
+    handshake->stop()                  // free BLE central; advertise + discovery stay
+    peers[peer.name].ip = hostIp       // half-paired: creds known, awaiting Hello
+    BS_LOG_WARN("Manual join: SSID '{ssid}' password '{psk}'")
+    for attempt in 1..60:              // ~2 min total
+      sleep(2s)
+      if transport->send(hostIp, port, Hello):
+        peers[peer.name].helloSent = true
+        return
   }
 #endif
 
@@ -2014,7 +2024,9 @@ bettersend_send_file(handle, peerName, filePath):
   ip = peers[peerName].ip   // learned via GATT (mac) או Hello (win)
   transport->send(ip, kDefaultPort, FileTransferable{filePath})</div>
       <div class="anno-cell info">
-        <strong>זה הצינור המלא.</strong> Phase 1 tie-break ב-<code>#ifdef</code>: Windows = host always, macOS = client always. ה-Hello של מק (TextTransferable עם prefix sentinel) מאפשר לwindows ללמוד את ה-IP של מק על ה-hotspot subnet — נסתר מה-UI. <code>bettersend_send_file</code> נכשל בשקט אם לא קרה pairing עדיין (peer ip עוד לא ידוע).
+        <strong>זה הצינור — Path B (dogfood).</strong> Phase 1 tie-break ב-<code>#ifdef</code>: Windows = host always, macOS = client always. אחרי GATT handshake, המק לא מנסה <code>joinNetwork</code> יותר (CoreWLAN <code>scanForNetworksWithName:</code> תקוע על <code>"Resource busy"</code> בסיליקון של Apple באופן עקבי). במקום זה הוא: (1) שומר את ה-hotspot IP על <code>peersByName</code> כדי שה-UI יוכל לסמן peer כ"half-paired", (2) מציג בלוג את ה-SSID + סיסמה למשתמש להתחברות ידנית, (3) רץ בלולאה של 60 ניסיונות (פעם בשתי שניות) של שליחת Hello. ברגע ש-<code>transport-&gt;send</code> מצליח, Windows לומד את ה-IP של מק דרך <code>socket.remote_endpoint()</code> וצינור ההעברה פתוח. <code>ITransport::send</code> עכשיו מחזיר <code>bool</code> כדי לסמן הצלחה אמיתית של ה-connect+write.
+        <br/><br/>
+        <strong>Path A (NEHotspotConfiguration)</strong> יחליף את הלולאה הידנית — דורש entitlement <code>com.apple.developer.networking.HotspotConfiguration</code> + provisioning ב-Apple developer portal. עד אז: dogfood.
       </div>
     </div>
   </div>
@@ -2098,13 +2110,13 @@ emit(Device{entry.canonical, "ble:" + id, kDefaultPort});</div>
   <div class="path">cpp_core/include/IDiscovery.h + src/BleDiscovery_Mac.mm — שחרור radio ל-CoreWLAN בזמן join</div>
   <div class="code-rows">
     <div class="code-row">
-      <div class="code-cell">// IDiscovery.h — virtual default no-op
+      <div class="code-cell">// IDiscovery.h — virtual default no-op (non-BLE backends ignore)
 virtual void pauseScan()      {}
 virtual void resumeScan()     {}
 virtual void pauseAdvertise() {}
 virtual void resumeAdvertise(){}
 
-// BleDiscovery_Mac.mm
+// BleDiscovery_Mac.mm — stop/start only, no manager nil-out
 void pauseScan() override {
   if (delegate_.central.isScanning) [delegate_.central stopScan];
 }
@@ -2118,32 +2130,20 @@ void resumeAdvertise() override {
   if (delegate_.wantAdvertise &amp;&amp; peripheral.state == PoweredOn) kickAdvertise();
 }
 
-// bettersend_api.cpp clientHandshakeAndJoin:
-ctx.handshake-&gt;stop();             // nil-out handshake central
-ctx.discovery-&gt;pauseScan();        // nil-out discovery central
-ctx.discovery-&gt;pauseAdvertise();   // nil-out discovery peripheral
-sleep(4s);                         // BT subsystem fully releases the radio
-joined = ctx.broker-&gt;joinNetwork(ssid, psk);
-ctx.discovery-&gt;resumeScan();       // re-alloc central (kickScan via state cb)
-ctx.discovery-&gt;resumeAdvertise();  // re-alloc peripheral (kickAdvertise via cb)
-
-// BleDiscovery_Mac pauseScan example (other pause/resume mirror it):
-void pauseScan() override {
-  if (delegate_.central) {
-    if (delegate_.central.isScanning) [delegate_.central stopScan];
-    delegate_.central.delegate = nil;
-    delegate_.central = nil;             // ARC dealloc → BT framework releases
-  }
-}
-void resumeScan() override {
-  if (delegate_.wantScan &amp;&amp; !delegate_.central) {
-    delegate_.central = [[CBCentralManager alloc]
-        initWithDelegate:delegate_ queue:queue_];
-    // peripheralManagerDidUpdateState fires ~50–100 ms later → kickScan().
-  }
-}</div>
+// bettersend_api.cpp clientHandshakeAndJoin (Path B):
+// — does NOT call pauseScan / pauseAdvertise / joinNetwork.
+// The Wi-Fi join is moved to the user (manual selection of the host
+// hotspot from the macOS Wi-Fi menu); the BLE roles keep running so the
+// peer stays visible across the join window, and the only thing keeping
+// the radio active is harmless to the *user-driven* Wi-Fi association.
+ctx.handshake-&gt;stop();        // free the GATT central, advertise + discovery stay up
+peers[peer.name].ip = hostIp; // cache hotspot IP, helloSent still false
+loop kHelloMaxAttempts times every kHelloRetrySec:
+  if transport-&gt;send(hostIp, port, Hello) → set helloSent=true, return</div>
       <div class="anno-cell info">
-        <strong>למה צריך:</strong> Mac BT ו-Wi-Fi חולקים אנטנה אחת בסיליקון של Apple. <em>כל</em> פעילות BLE פעילה — central scan, central connect, advertise, וגם עצם הקצאת <code>CBCentralManager</code>/<code>CBPeripheralManager</code> בזיכרון — מספיקה כדי לתפוס את הרדיו. <code>stopScan</code> / <code>stopAdvertising</code> לא מספיקים: המנהלים עדיין קיימים והמסגרת של BT מחזיקה ברדיו. הפתרון המלא: <code>nil</code>-out למנהלים (ARC dealloc → BT framework משחרר), sleep של 4s, ואז CoreWLAN. ב-resume מקצים מנהלים חדשים, ו-<code>peripheralManagerDidUpdateState</code> אוטומטית מפעיל את <code>kickAdvertise</code>/<code>kickScan</code> בערך 50–100ms אחר כך. הוכח בריצה משולבת 2026-06-04 17:32: רק אחרי nil-out + 4s sleep, <code>scanForNetworksWithName:</code> מצליח.
+        <strong>היסטוריה:</strong> Mac BT ו-Wi-Fi חולקים אנטנה אחת בסיליקון של Apple. אנחנו ניסינו לסגור את ה-BLE לחלוטין (<code>stopScan</code> + <code>stopAdvertising</code> → <code>nil</code> ל-<code>CBCentralManager</code>/<code>CBPeripheralManager</code> + 4s sleep) כדי לתת ל-CoreWLAN ל-<code>scanForNetworksWithName:</code> בלי <code>"Resource busy"</code>. <em>זה לא עזר.</em> ה-root cause הוא לא יריבות BLE×Wi-Fi — זה <code>scanForNetworksWithName:</code> עצמו, API שאפל הפסיקה לתחזק עוד לפני macOS 11.
+        <br/><br/>
+        <strong>החלטה (2026-06-07):</strong> Path B מבטל את הקריאות ל-<code>joinNetwork</code> וגם את ה-<code>pause*</code> מ-<code>clientHandshakeAndJoin</code>. ה-virtuals נשארים ב-<code>IDiscovery</code> וב-Mac impl (stop/start בלבד, ללא nil-out) — Path A (NEHotspotConfiguration) ינצל את אותו hook כשהוא יוצא בלי לגעת ב-API.
       </div>
     </div>
   </div>

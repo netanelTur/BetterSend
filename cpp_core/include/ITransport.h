@@ -45,7 +45,12 @@ public:
 
 	// Send any transferable item (file, text, etc.) to ip:port.
 	// The item provides both the header and the payload bytes.
-	virtual void send(const std::string& ip, int port,
+	// Returns true on a clean send, false if the connect/write failed —
+	// callers that need delivery feedback (e.g., the Mac client's Hello
+	// retry loop while it waits for the user to manually join the host
+	// hotspot) read the return value; callers that fire-and-forget can
+	// ignore it.
+	virtual bool send(const std::string& ip, int port,
 	                  const ITransferable& item) = 0;
 
 	// Stop the server and drain in-flight sends; blocks until clean shutdown.
