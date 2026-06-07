@@ -122,6 +122,30 @@ bool runNetworksetupJoin(NSString* iface, NSString* ssid, NSString* psk) {
 	return true;
 }
 
+// Warm the OS's known-network list with a fresh active scan.
+// `networksetup -setairportnetwork` only joins SSIDs the OS currently
+// believes are in range; if the host's beacon hasn't been seen in the
+// last few seconds, the join fails with "Could not find network …".
+// Unlike the SSID-filtered `scanForNetworksWithName:` (which returns
+// "Resource busy" indefinitely on Apple silicon and was the root cause
+// of the original Path B fallback), a nil-SSID scan is an open scan
+// that returns every visible network and succeeds reliably here.
+void primeScan() {
+	@autoreleasepool {
+		CWInterface* iface = [[CWWiFiClient sharedWiFiClient] interface];
+		if (!iface) return;
+		NSError* scanErr = nil;
+		NSSet* results = [iface scanForNetworksWithSSID:nil error:&scanErr];
+		if (scanErr) {
+			BS_LOG_DEBUG(kComponent, "Prime scan error: {}",
+				scanErr.localizedDescription.UTF8String);
+		} else {
+			BS_LOG_DEBUG(kComponent, "Prime scan: {} networks visible",
+				static_cast<unsigned long>(results.count));
+		}
+	}
+}
+
 // Poll CWWiFiClient until the active SSID matches `expected`. DHCP and
 // the interface activation can lag the `networksetup` exit by a second
 // or two on cold starts.
@@ -169,9 +193,29 @@ public:
 				"networksetup -setairportnetwork {} '{}' (psk redacted)",
 				iface.UTF8String, ssid);
 
-			if (!runNetworksetupJoin(iface, nsSsid, nsPsk)) {
+			// Retry the join a few times. The first attempt right after
+			// the BLE handshake often races: the OS has not yet seen the
+			// host's beacon, networksetup prints "Could not find network",
+			// then a fresh scan + retry succeeds within a few seconds.
+			constexpr int kJoinAttempts = 5;
+			constexpr int kJoinBackoffMs = 2000;
+			bool joined = false;
+			for (int attempt = 1; attempt <= kJoinAttempts; ++attempt) {
+				primeScan();
+				if (runNetworksetupJoin(iface, nsSsid, nsPsk)) {
+					joined = true;
+					break;
+				}
+				BS_LOG_WARN(kComponent,
+					"networksetup join attempt {} for '{}' failed; retrying in {} ms",
+					attempt, ssid, kJoinBackoffMs);
+				std::this_thread::sleep_for(
+					std::chrono::milliseconds(kJoinBackoffMs));
+			}
+			if (!joined) {
 				BS_LOG_ERROR(kComponent,
-					"networksetup join of '{}' failed", ssid);
+					"networksetup join of '{}' failed after {} attempts",
+					ssid, kJoinAttempts);
 				return false;
 			}
 
