@@ -111,6 +111,14 @@ struct BetterSendContext {
 	TransferRequestCallback                requestCb{nullptr};
 	TransferDeclineCallback                declineCb{nullptr};
 
+	// Discovery callback the Flutter UI registered. Kept on ctx (in addition
+	// to the lambda capture inside startDiscovery) so the TCP Hello handler
+	// can surface the Mac peer to the UI even when the Windows watcher hasn't
+	// caught a Mac BLE advert directly. Phase 1 Mac→Windows visibility on
+	// the shared Apple-silicon BT/Wi-Fi antenna is unreliable; Hello is the
+	// authoritative liveness signal once the hotspot join completed.
+	void (*onFoundCb)(const char* name, const char* ip, int port){nullptr};
+
 	IConnectionBroker::Credentials  hostCreds;
 	bool                            isHosting{false};
 };
@@ -336,10 +344,32 @@ void bettersend_start_server(void* handle, int port,
 				if (t.type == BetterSend::Transfer::Type::Clipboard &&
 				    BetterSend::isHelloPayload(t.data)) {
 					BS_LOG_INFO("API", "Hello from '{}' @ {}", t.senderName, t.senderIp);
-					std::lock_guard lock(ctx->peersMu);
-					auto& info = ctx->peersByName[t.senderName];
-					info.ip   = t.senderIp;
-					info.port = BetterSend::kDefaultPort;
+					bool firstSighting = false;
+					{
+						std::lock_guard lock(ctx->peersMu);
+						auto& info = ctx->peersByName[t.senderName];
+						firstSighting = info.ip.empty();
+						info.ip   = t.senderIp;
+						info.port = BetterSend::kDefaultPort;
+					}
+					// Surface the peer to the Flutter UI even if the watcher
+					// never caught a BLE advert from this Mac — the Hello
+					// proves the peer is alive and reachable on the hotspot
+					// subnet, which is all the UI's nearby-devices card
+					// needs. Heap-copy the strings because the FFI
+					// NativeCallable.listener delivers asynchronously and
+					// the Transfer struct destructs before Dart consumes
+					// them. Dart's bridge frees them via bettersend_free_cstr.
+					if (firstSighting && ctx->onFoundCb) {
+						char* name = new char[t.senderName.size() + 1];
+						std::memcpy(name, t.senderName.c_str(), t.senderName.size() + 1);
+						char* ip   = new char[t.senderIp.size() + 1];
+						std::memcpy(ip,   t.senderIp.c_str(),   t.senderIp.size() + 1);
+						ctx->onFoundCb(name, ip, BetterSend::kDefaultPort);
+						BS_LOG_INFO("API",
+							"Surfaced '{}' to UI via Hello (no BLE advert seen)",
+							t.senderName);
+					}
 					return;
 				}
 
@@ -457,6 +487,9 @@ void bettersend_start_discovery(void* handle, DeviceFoundCallback onFound) {
 	if (!handle) return;
 	try {
 		auto* ctx = static_cast<BetterSend::BetterSendContext*>(handle);
+		// Stash on ctx so the TCP Hello handler can also surface peers to
+		// the UI (Phase 1 fallback when the watcher misses the Mac advert).
+		ctx->onFoundCb = onFound;
 		ctx->discovery->startDiscovery([ctx, onFound](BetterSend::Device d) {
 			{
 				std::lock_guard lock(ctx->peersMu);
