@@ -52,6 +52,15 @@ std::string formatBdAddr(uint64_t addr) {
 	return std::string(buf);
 }
 
+// Last two bytes of the BD address as 4 hex chars, e.g. ...2B:73 -> "2B73".
+// Used to build a stable synthetic peer name when no LocalName is available.
+std::string lastFourHex(uint64_t addr) {
+	char buf[5];
+	std::snprintf(buf, sizeof(buf), "%02llX%02llX",
+		(addr >> 8) & 0xFF, addr & 0xFF);
+	return std::string(buf);
+}
+
 std::string hstringToStdString(const winrt::hstring& h) {
 	return winrt::to_string(h);
 }
@@ -218,44 +227,30 @@ private:
 			auto it = nameCache_.find(addr);
 			if (it != nameCache_.end()) name = it->second;
 		}
-		if (!name.empty()) {
-			surfaceIfNew(name, addr);
-			return;
-		}
 
-		// LocalName never made it to us (Apple drops it from scan response
-		// in some configurations). Fall back to querying Windows' Bluetooth
-		// system cache via BluetoothLEDevice — it often carries a friendly
-		// device name from past pairings or system scans. Async, fire-and-
-		// forget; surface once it resolves. Dedupe key handles re-fires.
+		// Per-address commit-then-reuse. macOS often gives Windows NO usable
+		// name: the 128-bit BetterSend ServiceUuid saturates the 31-byte
+		// primary advert, and CoreBluetooth doesn't reliably answer the
+		// SCAN_REQ with a LocalName scan-response (empirically: zero named
+		// scan-responses from the Mac across a whole session, even with a
+		// clean BT radio). The old code then dropped the peer, so the Mac
+		// never appeared on Windows at all. Instead surface a STABLE synthetic
+		// name (BetterSend-<last 4 hex of the BD address>) so the peer is
+		// visible and tappable; the real device name arrives later via the TCP
+		// Hello path on first connect. Commit the first name seen per address
+		// and reuse it, so a placeholder and a late real LocalName can't
+		// double-list the same peer.
 		{
-			std::lock_guard lock(lookupMu_);
-			if (!lookupsInFlight_.insert(addr).second) return; // one in flight
+			std::lock_guard lock(committedMu_);
+			auto it = committedName_.find(addr);
+			if (it != committedName_.end()) {
+				name = it->second;                 // reuse the committed name
+			} else {
+				if (name.empty()) name = "BetterSend-" + lastFourHex(addr);
+				committedName_[addr] = name;       // commit first name seen
+			}
 		}
-		auto op = winrt::Windows::Devices::Bluetooth::BluetoothLEDevice::FromBluetoothAddressAsync(addr);
-		op.Completed([this, addr](auto&& sender, winrt::Windows::Foundation::AsyncStatus status) {
-			std::string resolved;
-			if (status == winrt::Windows::Foundation::AsyncStatus::Completed) {
-				try {
-					auto device = sender.GetResults();
-					if (device != nullptr) resolved = hstringToStdString(device.Name());
-				} catch (...) { /* swallow; we'll fall through to MAC fallback */ }
-			}
-			// Windows hands back "Bluetooth XX:XX:XX:XX:XX:XX" when it has no
-			// friendly name cached — useless to the user. Treat as empty.
-			if (resolved.rfind("Bluetooth ", 0) == 0) resolved.clear();
-			{
-				std::lock_guard lock(lookupMu_);
-				lookupsInFlight_.erase(addr);
-			}
-			// Skip emit when we still have no real name. A synthetic
-			// "Mac-XX:XX:..." placeholder confused users (it surfaced even
-			// for peers that did advertise a LocalName, just on a later
-			// advert). Wait for the real name instead.
-			if (!resolved.empty()) {
-				surfaceIfNew(resolved, addr);
-			}
-		});
+		surfaceIfNew(name, addr);
 	}
 
 	void surfaceIfNew(const std::string& name, uint64_t addr) {
@@ -304,8 +299,10 @@ private:
 	std::mutex                                    nameCacheMu_;
 	std::unordered_map<uint64_t, std::string>     nameCache_;
 
-	std::mutex                                    lookupMu_;
-	std::unordered_set<uint64_t>                  lookupsInFlight_;
+	// First display name committed per BD address; reused so a placeholder
+	// and a late real name can't double-list the same peer.
+	std::mutex                                    committedMu_;
+	std::unordered_map<uint64_t, std::string>     committedName_;
 };
 
 // ── Factory ───────────────────────────────────────────────────────────────────

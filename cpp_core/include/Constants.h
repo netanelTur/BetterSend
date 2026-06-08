@@ -43,16 +43,6 @@ inline constexpr uint16_t kBleCompanyId       = 0xFFFF;
 inline constexpr uint8_t  kBleMagicBytes[]    = {0xBE, 0x77, 0xEC, 0xD0};
 inline constexpr int      kBleMaxNameLen      = 20;
 
-// Mac BLE scan duty-cycle (Apple silicon shares ONE antenna between BT and
-// Wi-Fi). A continuous AllowDuplicates scan keeps the radio in RX and starves
-// this Mac's own advertise, so the Windows watcher never catches a Mac packet
-// — Mac sees Windows, Windows never sees Mac. Pausing the scan for
-// kBleAdvertiseWindowMs every kBleScanWindowMs gives the advertise a clean TX
-// window. Discovery still catches the continuously-advertising Windows peer
-// during the scan windows. macOS-only; other platforms ignore these.
-inline constexpr int      kBleScanWindowMs      = 4000;
-inline constexpr int      kBleAdvertiseWindowMs = 2500;
-
 // ── Protocol ──────────────────────────────────────────────────────────────────
 inline constexpr uint32_t kHeaderLengthBytes  = 4;     // size prefix (big-endian)
 inline constexpr uint32_t kMaxHeaderSizeBytes = 4096;  // guard against malformed headers

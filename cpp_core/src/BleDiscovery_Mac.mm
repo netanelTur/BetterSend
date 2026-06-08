@@ -57,7 +57,6 @@ namespace BetterSend {
 @property (nonatomic, copy)   NSString*           advertName;
 @property (nonatomic, assign) BOOL                wantAdvertise;
 @property (nonatomic, assign) BOOL                wantScan;
-@property (atomic,    assign) uint64_t            scanDutyGen;
 @property (nonatomic, assign) BetterSend::BleDiscoveryMac* owner;
 @end
 
@@ -134,7 +133,7 @@ public:
 				delegate_.central = [[CBCentralManager alloc]
 					initWithDelegate:delegate_ queue:queue_];
 			} else if (delegate_.central.state == CBManagerStatePoweredOn) {
-				startScanDutyCycle();
+				kickScan();
 			}
 		}
 	}
@@ -151,7 +150,6 @@ public:
 	// NEHotspotConfiguration, which doesn't need BLE to release the radio.
 	void pauseScan() override {
 		@autoreleasepool {
-			delegate_.scanDutyGen = ++dutyGenCounter_;  // cancel the duty cycle
 			if (delegate_.central && delegate_.central.isScanning) {
 				[delegate_.central stopScan];
 				BS_LOG_DEBUG(kComponent, "Scan paused");
@@ -164,7 +162,7 @@ public:
 			if (delegate_.wantScan
 			    && delegate_.central
 			    && delegate_.central.state == CBManagerStatePoweredOn) {
-				startScanDutyCycle();
+				kickScan();
 				BS_LOG_DEBUG(kComponent, "Scan resumed");
 			}
 		}
@@ -202,8 +200,7 @@ public:
 		}
 		if (scanning_.exchange(false)) {
 			@autoreleasepool {
-				delegate_.wantScan    = NO;
-				delegate_.scanDutyGen = ++dutyGenCounter_;  // cancel the duty cycle
+				delegate_.wantScan = NO;
 				if (delegate_.central) [delegate_.central stopScan];
 			}
 			BS_LOG_DEBUG(kComponent, "Scan stopped");
@@ -211,8 +208,8 @@ public:
 	}
 
 	// ── Called by the ObjC delegate on the Bluetooth queue ──────────────────
-	void onPeripheralReady() { kickAdvertise();      }
-	void onCentralReady()    { startScanDutyCycle(); }
+	void onPeripheralReady() { kickAdvertise(); }
+	void onCentralReady()    { kickScan();      }
 
 	void onPeerDiscovered(const std::string& peerName, NSString* fallbackId) {
 		if (peerName.empty()) return;
@@ -255,47 +252,19 @@ private:
 		[delegate_.peripheral startAdvertising:opts];
 	}
 
-	// Start (or restart) the scan duty-cycle. Apple silicon shares one antenna
-	// between BT and Wi-Fi, and a continuous AllowDuplicates scan keeps the
-	// radio in RX — starving this Mac's own advertise so the Windows watcher
-	// never catches a packet (asymmetric: Mac sees Windows, Windows never sees
-	// Mac). So we scan for kBleScanWindowMs, then stop the scan for
-	// kBleAdvertiseWindowMs to give the advertise a clean TX window, and loop.
-	// Discovery still catches the continuously-advertising Windows peer during
-	// the scan windows.
-	void startScanDutyCycle() {
+	void kickScan() {
 		if (!delegate_.wantScan) return;
-		const uint64_t gen = ++dutyGenCounter_;
-		delegate_.scanDutyGen = gen;
-		scheduleScanWindow(delegate_, queue_, gen);
-	}
-
-	// Recurring window driver. Captures the delegate (ARC-retained, so it
-	// outlives this C++ object) and a generation token — NEVER `this` — so a
-	// pending block can't dereference a freed BleDiscoveryMac after stop().
-	// A stale generation (bumped by stop/pauseScan/restart) makes the block a
-	// no-op and ends the chain.
-	static void scheduleScanWindow(BSBleMacDelegate* d, dispatch_queue_t q, uint64_t gen) {
-		if (!d.wantScan || d.scanDutyGen != gen) return;
-		// services:nil — accept every peripheral; the signature check in
+		if (delegate_.central.isScanning) return;
+		// services:nil — accept every peripheral. The signature check in
 		// didDiscoverPeripheral admits both the Apple ServiceUUID advert and
-		// the Windows ManufacturerData advert. AllowDuplicates=YES keeps the
-		// heartbeat throttle in onPeerDiscovered fed with fresh callbacks.
-		if (d.central
-		    && d.central.state == CBManagerStatePoweredOn
-		    && !d.central.isScanning) {
-			NSDictionary* opts = @{ CBCentralManagerScanOptionAllowDuplicatesKey : @YES };
-			[d.central scanForPeripheralsWithServices:nil options:opts];
-		}
-		dispatch_after(
-			dispatch_time(DISPATCH_TIME_NOW, (int64_t)kBleScanWindowMs * NSEC_PER_MSEC),
-			q, ^{
-				if (!d.wantScan || d.scanDutyGen != gen) return;
-				if (d.central.isScanning) [d.central stopScan];   // advertise window
-				dispatch_after(
-					dispatch_time(DISPATCH_TIME_NOW, (int64_t)kBleAdvertiseWindowMs * NSEC_PER_MSEC),
-					q, ^{ scheduleScanWindow(d, q, gen); });
-			});
+		// the Windows ManufacturerData advert; filtering on the UUID at the
+		// controller would silently drop every Windows packet.
+		// AllowDuplicates=YES so the heartbeat throttle in onPeerDiscovered
+		// keeps getting fresh callbacks while the peer is still advertising —
+		// without it CoreBluetooth emits one event per peripheral per scan
+		// session and we can't tell when a peer goes offline.
+		NSDictionary* opts = @{ CBCentralManagerScanOptionAllowDuplicatesKey : @YES };
+		[delegate_.central scanForPeripheralsWithServices:nil options:opts];
 	}
 
 	struct ThrottleEntry {
@@ -308,7 +277,6 @@ private:
 	std::function<void(Device)>                      onFound_;
 	std::atomic<bool>                                advertising_{false};
 	std::atomic<bool>                                scanning_{false};
-	std::atomic<uint64_t>                            dutyGenCounter_{0};
 	std::mutex                                       seenMu_;
 	std::unordered_map<std::string, ThrottleEntry>   throttle_;
 };

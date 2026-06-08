@@ -434,7 +434,7 @@
     <span style="background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;">Future — Cloud Room</span>
   </div>
   <div class="meta">
-    <span>עדכון אחרון: 2026-06-08 (Tap-to-Connect — המק מתחבר ל-Wi-Fi רק בלחיצת משתמש; bettersend_connect_peer + ConnectStatusCallback + connectToPeer + ספינר; הוסר auto-join. + BLE scan duty-cycle כדי ש-Windows יראה את המק)</span>
+    <span>עדכון אחרון: 2026-06-08 (Tap-to-Connect — המק מתחבר ל-Wi-Fi רק בלחיצת משתמש; bettersend_connect_peer + ConnectStatusCallback + connectToPeer + ספינר; הוסר auto-join. Windows רואה את המק דרך שם placeholder כשאין LocalName; duty-cycle בוטל)</span>
     <span>שלב פעיל: Phase 1 — צינור: BLE discovery (רק חושף peers) → המשתמש לוחץ על מכשיר → bettersend_connect_peer מריץ worker מנותק: GATT handshake → joinNetwork (CoreWLAN open scan + associate) → לולאת Hello → TCP. Control plane של request/accept/decline פעיל.</span>
   </div>
 </div>
@@ -2372,20 +2372,26 @@ onSend: () =&gt; _connectAndSend(device);
   </div>
 </div>
 
-<!-- ── BLE scan duty-cycle — Windows רואה את המק (2026-06-08) ───────────────── -->
-<div id="ble-duty-cycle" class="file-section">
-  <h2>BLE scan duty-cycle — כדי ש-Windows יראה את המק</h2>
-  <div class="path">cpp_core/src/BleDiscovery_Mac.mm + include/Constants.h (kBleScanWindowMs / kBleAdvertiseWindowMs)</div>
+<!-- ── BLE visibility — Windows רואה את המק via placeholder (2026-06-08) ────── -->
+<div id="ble-visibility" class="file-section">
+  <h2>BLE visibility — איך Windows רואה את המק (שם placeholder)</h2>
+  <div class="path">cpp_core/src/BleDiscovery_Windows.cpp — שם סינתטי כשאין LocalName</div>
   <div class="code-rows">
     <div class="code-row">
-      <div class="code-cell">// BleDiscovery_Mac.mm — was: scan continuously (AllowDuplicates) forever.
-// now: scan kBleScanWindowMs (4000) -> stop scan kBleAdvertiseWindowMs (2500) -> loop
-void startScanDutyCycle();                 // bumps a generation token, schedules window
-static void scheduleScanWindow(BSBleMacDelegate* d, dispatch_queue_t q, uint64_t gen);
-//   captures the delegate (ARC-retained) + gen, NEVER `this` —
-//   a stale gen (stop/pauseScan/restart) makes the block a no-op.</div>
+      <div class="code-cell">// handleReceived: קיבלנו את ה-ServiceUuid של BetterSend, אבל אין LocalName
+// (advert ראשי רווי ע"י ה-UUID 128-bit; macOS לא עונה SCAN_RSP עם שם שמיש)
+{
+    std::lock_guard lock(committedMu_);
+    auto it = committedName_.find(addr);
+    if (it != committedName_.end()) name = it->second;            // reuse
+    else {
+        if (name.empty()) name = "BetterSend-" + lastFourHex(addr); // e.g. BetterSend-2B73
+        committedName_[addr] = name;                              // commit-then-reuse
+    }
+}
+surfaceIfNew(name, addr);</div>
       <div class="anno-cell info">
-        <strong>הבעיה (2026-06-08):</strong> המק רואה את Netanel תוך שנייה, אבל Windows לא רואה את המק <em>בכלל</em>. צד Windows תקין (<a href="#">BleDiscovery_Windows</a> סורק Active ויודע לקרוא את ה-ServiceUUID+LocalName advert של המק) — הבעיה היא שה-advert של המק כמעט לא משודר: בסיליקון של Apple ה-BT וה-Wi-Fi חולקים אנטנה אחת, וסריקה רציפה עם <code>AllowDuplicates=YES</code> מחזיקה את הרדיו ב-RX ומרעיבה את ה-<code>CBPeripheralManager</code> advertise. <strong>הפתרון:</strong> duty-cycle — סורקים 4s, ואז עוצרים את הסריקה 2.5s כדי שה-advert ישודר בחלון נקי, וחוזרים. המק עדיין רואה את Netanel (שמשדר רציף) בחלונות הסריקה. זה <em>לא</em> נוגע ב-tap→join→transfer (זה עובד — לא נשבר). הערה: כבר ניסינו duty-cycle בעבר (failed-attempts §2) וזה לא הספיק — אבל אז רץ גם handshake central רציף שהתחרה על האנטנה; עכשיו ה-handshake רץ רק בלחיצה, אז ה-duty-cycle הוא הצרכן היחיד. <strong>טעון אימות מול Windows אמיתי.</strong></div>
+        <strong>מה קרה (2026-06-08, מדידה אמפירית אצל Netanel):</strong> ה-watcher של Windows <em>כן</em> שומע את ה-advert של המק (~71 התאמות ServiceUuid ב-100s, גם כשה-hotspot דולק) — אז ההשערה ש-eager-host (a390e64) הרס את ה-watcher <strong>הופרכה</strong>. הבעיה האמיתית: ה-advert מגיע <em>בלי שם</em> — ה-UUID ה-128-bit ממלא את ה-advert הראשי, ו-CoreBluetooth לא מספק SCAN_RSP עם LocalName שמיש (אפס scan-responses עם שם מהמק לאורך כל הסשן). הקוד הישן זרק peer בלי שם (ה-fallback של <code>BluetoothLEDevice</code> החזיר רק "Bluetooth XX:.." ונזרק) → המק לא הופיע אף פעם ב-Windows. <strong>התיקון:</strong> Windows ממציא שם יציב <code>BetterSend-&lt;4 hex אחרונים של הכתובת&gt;</code> כך שה-peer נראה ולחיץ; השם האמיתי מגיע אחר כך דרך ה-TCP Hello בחיבור הראשון. <code>commit-then-reuse</code> לפי כתובת מונע כפילות. <strong>"עבד ב-80b10a7" היה אשליה:</strong> ה-auto-join גרם למק להתחבר מיד וה-Hello הציף אותו ב-Windows; tap-to-connect הסיר את ה-auto-join, אז בלי לחיצה אין Hello ואין מה להציף. <strong>ה-duty-cycle (83ad0cd) בוטל</strong> — תקף את הצד הלא-נכון (advert של המק שמגיע ממילא) ואף עלול לאכול את ה-SCAN_RSP. הקוד נכתב בצד Windows; <strong>טעון build+אימות אצל Netanel.</strong></div>
     </div>
   </div>
 </div>
