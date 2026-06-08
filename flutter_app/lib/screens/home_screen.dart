@@ -154,7 +154,56 @@ class _HomeScreenState extends State<HomeScreen> {
 		ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(label)));
 	}
 
-	Future<void> _pickAndSend(DiscoveredDevice device) async {
+	// Tap a device → connect to its hotspot first (spinner), then pick a file
+	// and send. The Mac no longer auto-joins on discovery; the join happens
+	// only here, for the one device the user chose.
+	Future<void> _connectAndSend(DiscoveredDevice device) async {
+		final messenger = ScaffoldMessenger.of(context);
+		var dialogOpen = true;
+
+		showDialog<void>(
+			context: context,
+			barrierDismissible: false,
+			builder: (ctx) => AlertDialog(
+				content: Row(
+					mainAxisSize: MainAxisSize.min,
+					children: [
+						const SizedBox(
+							width: 22, height: 22,
+							child: CircularProgressIndicator(strokeWidth: 2.5),
+						),
+						const SizedBox(width: 20),
+						Expanded(child: Text('Connecting to ${device.name}…')),
+					],
+				),
+				actions: [
+					TextButton(
+						onPressed: () {
+							dialogOpen = false;
+							Navigator.pop(ctx);
+						},
+						child: const Text('Cancel'),
+					),
+				],
+			),
+		);
+
+		final ok = await widget.bridge.connectToPeer(device);
+
+		// User cancelled: the connect result is ignored (background state),
+		// the dialog is never resurrected.
+		if (!dialogOpen || !mounted) return;
+		dialogOpen = false;
+		Navigator.of(context, rootNavigator: true).pop(); // close the spinner
+
+		if (!ok) {
+			messenger.showSnackBar(SnackBar(
+				content: Text('Could not connect to ${device.name}. Tap to retry.'),
+			));
+			return;
+		}
+
+		// Connected → pick a file and send via the existing request flow.
 		final result = await FilePicker.platform.pickFiles();
 		if (result == null || result.files.isEmpty) return;
 		final path = result.files.single.path;
@@ -162,10 +211,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
 		widget.bridge.sendFile(device, path);
 		if (!mounted) return;
-
-		ScaffoldMessenger.of(context).showSnackBar(
-			SnackBar(content: Text('Request sent to ${device.name}; waiting for accept...')),
-		);
+		messenger.showSnackBar(SnackBar(
+			content: Text('Request sent to ${device.name}; waiting for accept...'),
+		));
 	}
 
 	@override
@@ -204,7 +252,7 @@ class _HomeScreenState extends State<HomeScreen> {
 									itemCount: _devices.length,
 									itemBuilder: (_, i) => _DeviceCard(
 										device: _devices[i],
-										onSend: () => _pickAndSend(_devices[i]),
+										onSend: () => _connectAndSend(_devices[i]),
 									),
 								),
 						),

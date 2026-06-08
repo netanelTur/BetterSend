@@ -60,10 +60,55 @@ class DeviceListScreen extends StatelessWidget {
 		);
 	}
 
-	void _send(BuildContext context, DiscoveredDevice device) {
+	// Connect to the chosen device's hotspot (spinner) before sending the
+	// already-picked content. Mirrors HomeScreen's connect-then-send gate.
+	Future<void> _send(BuildContext context, DiscoveredDevice device) async {
+		final navigator = Navigator.of(context);
+		final messenger = ScaffoldMessenger.of(context);
+		var dialogOpen = true;
+
+		showDialog<void>(
+			context: context,
+			barrierDismissible: false,
+			builder: (ctx) => AlertDialog(
+				content: Row(
+					mainAxisSize: MainAxisSize.min,
+					children: [
+						const SizedBox(
+							width: 22, height: 22,
+							child: CircularProgressIndicator(strokeWidth: 2.5),
+						),
+						const SizedBox(width: 20),
+						Expanded(child: Text('Connecting to ${device.name}…')),
+					],
+				),
+				actions: [
+					TextButton(
+						onPressed: () {
+							dialogOpen = false;
+							Navigator.pop(ctx);
+						},
+						child: const Text('Cancel'),
+					),
+				],
+			),
+		);
+
+		final ok = await bridge.connectToPeer(device);
+		if (!dialogOpen) return;
+		dialogOpen = false;
+		navigator.pop(); // close the spinner
+
+		if (!ok) {
+			messenger.showSnackBar(SnackBar(
+				content: Text('Could not connect to ${device.name}.'),
+			));
+			return;
+		}
+
 		if (filePath != null) {
 			bridge.sendFile(device, filePath!);
-			Navigator.push(context, MaterialPageRoute(
+			navigator.push(MaterialPageRoute(
 				builder: (_) => TransferScreen(
 					device:   device,
 					fileName: p.basename(filePath!),
@@ -71,7 +116,7 @@ class DeviceListScreen extends StatelessWidget {
 			));
 		} else if (clipboardText != null) {
 			bridge.sendClipboard(device, clipboardText!);
-			Navigator.pop(context);
+			navigator.pop();
 		}
 	}
 }

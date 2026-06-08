@@ -145,11 +145,15 @@ public:
 				"associateToNetwork '{}' (psk redacted, len={})",
 				ssid, static_cast<unsigned long>(nsPsk.length));
 
-			// Retry the whole open-scan + associate cycle a few times — the
-			// first attempt right after the BLE handshake can land before
-			// the host's first Wi-Fi beacon has reached the Mac's radio.
-			constexpr int kJoinAttempts  = 5;
-			constexpr int kJoinBackoffMs = 2000;
+			// Retry the whole open-scan + associate cycle a few times. Since
+			// the join now happens at user tap-time (the Windows host has been
+			// beaconing for seconds), attempt 1 almost always wins and the
+			// backoff never fires. The backoff MUST stay >= 8 s: airportd
+			// rate-limits back-to-back open scans inside a ~5-6 s window
+			// (returns "Resource busy"), so a shorter retry just burns a
+			// rejected scan. 3 attempts fails fast to the connect spinner.
+			constexpr int kJoinAttempts  = 3;
+			constexpr int kJoinBackoffMs = 8000;
 			bool associated = false;
 			for (int attempt = 1; attempt <= kJoinAttempts; ++attempt) {
 				if (joinViaCoreWLAN(nsSsid, nsPsk)) {

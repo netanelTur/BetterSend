@@ -410,6 +410,7 @@
     <a href="#control-plane">Control Plane — Request/Accept/Decline</a>
     <a href="#flutter-runtime">Flutter UI — Dialog + Prune</a>
     <a href="#entitlements-runtime">Entitlements — File Picker</a>
+    <a href="#tap-connect">Tap-to-Connect (2026-06-08)</a>
   </div>
 </nav>
 
@@ -433,8 +434,8 @@
     <span style="background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;">Future — Cloud Room</span>
   </div>
   <div class="meta">
-    <span>עדכון אחרון: 2026-06-08 (תיקיית שמירה נבחרת ע"י המשתמש — setSaveDirectory ב-TcpTransport + bettersend_set_save_dir + בורר תיקייה ב-UI)</span>
-    <span>שלב פעיל: Phase 1 — צינור: BLE discovery → GATT handshake → המשתמש מצטרף ל-hotspot ידנית מתפריט Wi-Fi של macOS → לולאת Hello עד שהיא מצליחה → TCP. Control plane של request/accept/decline פעיל; הקפיצה האוטומטית ל-Wi-Fi מחכה ל-NEHotspotConfiguration ב-Path A.</span>
+    <span>עדכון אחרון: 2026-06-08 (Tap-to-Connect — המק מתחבר ל-Wi-Fi רק בלחיצת משתמש על מכשיר ספציפי; bettersend_connect_peer + ConnectStatusCallback + connectToPeer + ספינר; הוסר auto-join)</span>
+    <span>שלב פעיל: Phase 1 — צינור: BLE discovery (רק חושף peers) → המשתמש לוחץ על מכשיר → bettersend_connect_peer מריץ worker מנותק: GATT handshake → joinNetwork (CoreWLAN open scan + associate) → לולאת Hello → TCP. Control plane של request/accept/decline פעיל.</span>
   </div>
 </div>
 
@@ -2320,6 +2321,53 @@ _handleDeclined(id): SnackBar("Peer declined the transfer.");</div>
       <div class="anno-cell info">
         <strong>הסיבה לתקלה שהיתה אצל Yonatan:</strong> ה-app sandbox של macOS חוסם פתיחת קבצים מחוץ ל-container אם אין entitlement מתאים. בלי <code>com.apple.security.files.user-selected.read-only</code>, <code>FilePicker.platform.pickFiles()</code> מצליח לפתוח את החלון אבל לא יכול לקרוא את הקובץ שנבחר. אצל Nathaniel (Windows) אין sandbox → עבד מיד. נוסף לשני קבצים — Debug + Release.
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Tap-to-Connect — חיבור Wi-Fi לפי בחירת משתמש (2026-06-08) ────────────── -->
+<div id="tap-connect" class="file-section">
+  <h2>Tap-to-Connect — חיבור Wi-Fi לפי לחיצת משתמש</h2>
+  <div class="path">cpp_core/src/bettersend_api.cpp — discovery כבר לא מבצע auto-join; ה-join קורה רק ב-bettersend_connect_peer</div>
+  <div class="code-rows">
+    <div class="code-row">
+      <div class="code-cell">// discovery onFound: Mac no longer auto-joins. Windows host stays eager.
+#if defined(_WIN32)
+    ensureHostStarted(*ctx, kDefaultPort);
+#endif
+
+// New C surface — fired ONLY on a user tap:
+using ConnectStatusCallback = void(*)(const char* peerName, int status);
+//   0=connecting  1=joined  2=ready (reachable)  3=failed
+void bettersend_connect_peer(handle, peerName, cb);
+//   Mac:     detached worker -> clientHandshakeAndJoin(ctx, peer, cb)
+//            GATT read {ssid,psk,hostIp,port} -> joinNetwork -> Hello
+//   Windows: poll peersByName[name].ip (set by the Mac's Hello)
+//            cb(2) when reachable, cb(3) after kConnectTimeoutSec (25s)</div>
+      <div class="anno-cell info">
+        <strong>למה שינינו (2026-06-08):</strong> קודם המק היה מתחבר אוטומטית לרשת של ה-peer הראשון שראה ב-BLE. עם יותר ממכשיר אחד זה גרם לכאוס — המק לא ידע לאיזו רשת להתחבר, ולעיתים ניסה להתחבר לפני שה-hotspot של Windows בכלל שידר, ונפל ללולאת retry איטית. <strong>הפתרון:</strong> ה-join קורה עכשיו <em>רק</em> כשהמשתמש לוחץ על מכשיר. <code>bettersend_connect_peer</code> מריץ worker מנותק (לא חוסם את ה-FFI thread, כי <code>joinNetwork</code>/<code>fetchPayload</code> נמשכים שניות), מדווח התקדמות ב-<code>ConnectStatusCallback</code>. הלחיצה היא התשובה ל"לאיזו רשת". זה בטוח עכשיו כי <code>a390e64</code> (eager host) + <code>6904aa8</code> (זיהוי מק דרך TCP Hello) שברו את ה-deadlock ש-§16 ב-failed-attempts תיעד (Windows כבר לא צריך לראות את המק ב-BLE).</div>
+    </div>
+    <div class="code-row">
+      <div class="code-cell">// MacWifiClientBroker.mm — joinNetwork retry tuning
+constexpr int kJoinAttempts  = 3;      // was 5
+constexpr int kJoinBackoffMs = 8000;   // was 2000
+// open scan (scanForNetworksWithSSID:nil) -> filter SSID -> associateToNetwork:</div>
+      <div class="anno-cell info">
+        <strong>מהירות (2026-06-08):</strong> macOS לא חושף API להצטרפות ל-Wi-Fi בלי scan — <code>associateToNetwork:</code> דורש <code>CWNetwork*</code> מתוך scan פתוח (<code>NEHotspotConfiguration</code> = iOS בלבד). אבל ה-scan הפתוח אמין כשה-host כבר משדר. ה-backoff חייב להיות ≥ 8s: airportd חוסם scans רצופים בחלון ~5-6s עם <code>"Resource busy"</code>, אז retry מוקדם רק שורף scan. מכיוון שה-join קורה עכשיו בזמן הלחיצה (ה-host משדר כבר שניות), ה-scan הראשון מוצא את ה-SSID ומצטרף בניסיון 1. <strong>החלטה מודעת:</strong> לא משתיקים BLE סביב ה-scan — ה-"Resource busy" המתועד הוא rate-limit שנשאר גם אחרי nil-out של ה-CBManagers, וה-nil-out הוא הקוד שגרם ללולאות באג (failed-attempts §14).</div>
+    </div>
+    <div class="code-row">
+      <div class="code-cell">// ffi_bridge.dart
+Future&lt;bool&gt; connectToPeer(DiscoveredDevice device);
+//   one Completer per peer name; status 2/3 resolves it;
+//   Timer(_kConnectTimeout = 25s) is the safety net.
+
+// home_screen.dart — tap a device
+onSend: () =&gt; _connectAndSend(device);
+//   show "Connecting to X…" spinner (+Cancel)
+//   await connectToPeer -> true: file picker -> sendFile
+//                       -> false: error SnackBar (tap to retry)</div>
+      <div class="anno-cell info">
+        <strong>UI (2026-06-08):</strong> לחיצה על מכשיר פותחת דיאלוג ספינר לא-נסגר "Connecting to X…" עם Cancel. <code>connectToPeer</code> מחזיר <code>Future&lt;bool&gt;</code> שמסתיים על status 2 (true) / 3 (false), עם Timer של 25s כרשת ביטחון כדי שהספינר לא ייתקע (ה-worst case של ה-native יכול לעבור את הזמן). בהצלחה — הספינר נסגר ונפתח בורר הקבצים (הזרימה הקיימת); בכשלון — SnackBar. Cancel סוגר את הדיאלוג; תוצאה מאוחרת מתעדכנת ברקע ולא מחזירה את הדיאלוג. ה-<code>peerName</code> שה-native מקצה ב-heap משוחרר ב-Dart דרך <code>bettersend_free_cstr</code> בכל callback. אותו gate הוסף גם ל-<code>device_list_screen.dart</code>.</div>
     </div>
   </div>
 </div>

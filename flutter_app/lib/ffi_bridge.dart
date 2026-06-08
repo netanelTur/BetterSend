@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ffi';
 import 'dart:io';
 import 'dart:math';
@@ -76,6 +77,14 @@ typedef _NativeSetDeclineCb = Void Function(
 typedef _DartSetDeclineCb   = void Function(
 	Pointer<Void>, Pointer<NativeFunction<NativeTransferDeclineCb>>);
 
+// C callback: void(*)(const char* peerName, int status)
+//   status: 0=connecting, 1=joined, 2=ready (reachable), 3=failed
+typedef NativeConnectStatusCb = Void Function(Pointer<Utf8>, Int32);
+typedef _NativeConnectPeer = Void Function(
+	Pointer<Void>, Pointer<Utf8>, Pointer<NativeFunction<NativeConnectStatusCb>>);
+typedef _DartConnectPeer   = void Function(
+	Pointer<Void>, Pointer<Utf8>, Pointer<NativeFunction<NativeConnectStatusCb>>);
+
 typedef _NativeSetSaveDir = Void Function(Pointer<Void>, Pointer<Utf8>);
 typedef _DartSetSaveDir   = void Function(Pointer<Void>, Pointer<Utf8>);
 
@@ -96,9 +105,14 @@ final _declineTransfer  = _lib.lookupFunction<_NativeDeclineTransfer, _DartDecli
 final _setReqCb         = _lib.lookupFunction<_NativeSetReqCb,        _DartSetReqCb>        ('bettersend_set_request_callback');
 final _setDeclineCb     = _lib.lookupFunction<_NativeSetDeclineCb,    _DartSetDeclineCb>    ('bettersend_set_decline_callback');
 final _setSaveDir       = _lib.lookupFunction<_NativeSetSaveDir,      _DartSetSaveDir>      ('bettersend_set_save_dir');
+final _connectPeer      = _lib.lookupFunction<_NativeConnectPeer,    _DartConnectPeer>     ('bettersend_connect_peer');
 final _freeCstr         = _lib.lookupFunction<_NativeFreeCstr,        _DartFreeCstr>        ('bettersend_free_cstr');
 
 // ── 4. BetterSendBridge ───────────────────────────────────────────────────────
+
+// Overall connect deadline for the UI spinner. Keep in lockstep with
+// kConnectTimeoutSec in cpp_core/include/Constants.h.
+const Duration _kConnectTimeout = Duration(seconds: 25);
 
 class BetterSendBridge {
 	late final Pointer<Void> _handle;
@@ -106,6 +120,11 @@ class BetterSendBridge {
 	NativeCallable<NativeTransferRecvCb>?     _transferCb;
 	NativeCallable<NativeTransferReqCb>?      _requestCb;
 	NativeCallable<NativeTransferDeclineCb>?  _declineCb;
+	NativeCallable<NativeConnectStatusCb>?    _connectCb;
+	// One completer per in-flight connect, keyed by peer name. The native
+	// status callback (status 2/3) resolves it; a Dart-side timer is the
+	// safety net so the UI spinner can never hang past _kConnectTimeout.
+	final Map<String, Completer<bool>>        _connectCompleters = {};
 
 	static final Random _rng = Random();
 
@@ -142,6 +161,54 @@ class BetterSendBridge {
 			},
 		);
 		_startDiscovery(_handle, _discoveryCb!.nativeFunction);
+	}
+
+	/// Connect to a specific discovered [device]: the native layer GATT-reads
+	/// the peer's hotspot credentials and joins its Wi-Fi (Mac), or waits for
+	/// the peer to become reachable (Windows host). Completes `true` once the
+	/// peer is reachable, `false` on failure or after [_kConnectTimeout].
+	///
+	/// Tapping the same device twice while a connect is in flight returns the
+	/// same future rather than starting a second join.
+	Future<bool> connectToPeer(DiscoveredDevice device) {
+		final existing = _connectCompleters[device.name];
+		if (existing != null && !existing.isCompleted) return existing.future;
+
+		// Lazily create the shared status listener. NativeCallable.listener
+		// posts to the Dart isolate — safe from the C worker thread. The
+		// peerName is heap-allocated in C; we own it and must _freeCstr it.
+		_connectCb ??= NativeCallable<NativeConnectStatusCb>.listener(
+			(Pointer<Utf8> namePtr, int status) {
+				final name = namePtr.cast<Utf8>().toDartString();
+				_freeCstr(namePtr.cast<Utf8>());
+				// 0=connecting, 1=joined are progress-only. 2/3 are terminal.
+				if (status == 2 || status == 3) {
+					final c = _connectCompleters.remove(name);
+					if (c != null && !c.isCompleted) c.complete(status == 2);
+				}
+			},
+		);
+
+		final completer = Completer<bool>();
+		_connectCompleters[device.name] = completer;
+
+		// Safety net: the native Mac worker's worst case (GATT 20s + join 24s +
+		// Hello 10s) can exceed the deadline, so cap the spinner here.
+		final timer = Timer(_kConnectTimeout, () {
+			if (!completer.isCompleted) {
+				_connectCompleters.remove(device.name);
+				completer.complete(false);
+			}
+		});
+		completer.future.whenComplete(timer.cancel);
+
+		final namePtr = device.name.toNativeUtf8();
+		try {
+			_connectPeer(_handle, namePtr, _connectCb!.nativeFunction);
+		} finally {
+			malloc.free(namePtr);
+		}
+		return completer.future;
 	}
 
 	/// Start the TCP server listening on [port]; [onReceive] fires for each
@@ -277,6 +344,7 @@ class BetterSendBridge {
 		_transferCb?.close();
 		_requestCb?.close();
 		_declineCb?.close();
+		_connectCb?.close();
 		_destroy(_handle);
 	}
 }

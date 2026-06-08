@@ -66,8 +66,7 @@ struct PeerInfo {
 	std::string                           ip;           // hotspot-subnet IP, learned at runtime
 	int                                   port{kDefaultPort};
 	bool                                  helloSent{false};       // Mac: did we send our Hello?
-	bool                                  attemptInFlight{false}; // Mac: handshake/join in progress
-	std::chrono::steady_clock::time_point lastAttempt{};          // Mac: cooldown anchor
+	bool                                  attemptInFlight{false}; // Mac: a connect is in progress
 };
 
 // Pending outbound transfer — sender waits for the peer's Accept/Decline
@@ -92,6 +91,12 @@ using TransferRequestCallback = void(*)(const char* transferId,
                                         const char* filename,
                                         long long   sizeBytes);
 using TransferDeclineCallback = void(*)(const char* transferId);
+
+// Fired by bettersend_connect_peer as a user-initiated connect progresses.
+// status: 0 = connecting, 1 = joined (Wi-Fi associated), 2 = ready (Hello
+// round-trip OK, peer reachable), 3 = failed. peerName is heap-allocated;
+// the Dart side frees it via bettersend_free_cstr.
+using ConnectStatusCallback = void(*)(const char* peerName, int status);
 
 struct BetterSendContext {
 	std::string                          localDeviceName;
@@ -197,32 +202,39 @@ void ensureHostStarted(BetterSendContext& ctx, int port) {
 #endif
 
 #if defined(__APPLE__)
-// Client-side bring-up (Mac in Phase 1). One-shot per peer.
+// Client-side connect worker (Mac in Phase 1), driven by a user tap via
+// bettersend_connect_peer — NOT auto-fired on BLE peer-sight anymore. Tapping
+// a specific peer is what answers the "which host's network?" question when
+// more than one device is visible.
 //
-// Phase 1 — Path A (NEHotspotConfiguration auto-join):
-//   After the BLE/GATT handshake delivers {ssid, psk, hostIp, port}, the
-//   Mac immediately calls `broker->joinNetwork(...)` — which is now the
-//   `MacWifiClientBroker` impl built on `NEHotspotConfiguration` (the
-//   modern macOS Wi-Fi API). The OS handles scan + associate + DHCP
-//   internally; the user does NOT need to touch the Wi-Fi menu. First
-//   join per SSID may surface a one-shot system "Allow this app to join
-//   <ssid>?" dialog; subsequent joins on the same SSID are silent.
+//   1. GATT-read {ssid, psk, hostIp, port} from the tapped peer.
+//   2. broker->joinNetwork(ssid, psk) — CoreWLAN open scan + associate. By
+//      tap-time the Windows host has been beaconing for seconds, so a single
+//      open scan finds the SSID and associates on attempt 1 (no retry storm).
+//   3. Fire the Hello so the host learns the Mac's hotspot IP via
+//      socket.remote_endpoint(); the first Hello that lands proves Wi-Fi +
+//      DHCP + host reachability — that is the "ready" signal for the UI.
 //
-//   Once the broker reports a successful join, a short retry loop
-//   (`kHelloAfterJoinRetries × kHelloRetryMs`) waits for Windows's TCP
-//   server to become reachable on the hotspot subnet — DHCP can lag the
-//   join completion by a second or two — and fires the Hello so the
-//   host learns the Mac's hotspot IP via `socket.remote_endpoint()`.
+// Progress reported via ConnectStatusCallback: connecting(0) -> joined(1)
+// -> ready(2), or failed(3) at any abort. peerName in each callback is
+// heap-allocated; Dart frees it via bettersend_free_cstr.
 constexpr int kHelloAfterJoinRetries = 10;
 constexpr int kHelloRetryMs          = 1000;
 
-void clientHandshakeAndJoin(BetterSendContext& ctx, const Device& peer) {
+void clientHandshakeAndJoin(BetterSendContext& ctx, const Device& peer,
+                            ConnectStatusCallback cb) {
+	auto fire = [cb](const std::string& name, int status) {
+		if (cb) cb(heapCopy(name), status);
+	};
 	try {
-		BS_LOG_INFO(kApiComponent, "Client handshake with '{}'", peer.name);
+		BS_LOG_INFO(kApiComponent, "Client connect with '{}'", peer.name);
+		fire(peer.name, 0);  // connecting
+
 		const std::string payload = ctx.handshake->fetchPayload(
 			peer.ip, kHandshakeTimeoutSec);
 		if (payload.empty()) {
 			BS_LOG_ERROR(kApiComponent, "Empty GATT payload from '{}'", peer.name);
+			fire(peer.name, 3);
 			return;
 		}
 		auto j = nlohmann::json::parse(payload);
@@ -233,6 +245,7 @@ void clientHandshakeAndJoin(BetterSendContext& ctx, const Device& peer) {
 
 		if (ssid.empty() || hostIp.empty()) {
 			BS_LOG_ERROR(kApiComponent, "Malformed GATT JSON: '{}'", payload);
+			fire(peer.name, 3);
 			return;
 		}
 
@@ -251,15 +264,15 @@ void clientHandshakeAndJoin(BetterSendContext& ctx, const Device& peer) {
 		}
 
 		if (!ctx.broker->joinNetwork(ssid, psk)) {
-			BS_LOG_ERROR(kApiComponent,
-				"joinNetwork('{}') failed; aborting handshake. Mac will "
-				"retry on the next BLE sighting per kPeerRetrySec.", ssid);
+			BS_LOG_ERROR(kApiComponent, "joinNetwork('{}') failed", ssid);
+			fire(peer.name, 3);
 			return;
 		}
+		fire(peer.name, 1);  // joined
 
 		// DHCP and the Windows TCP listener may take a moment to become
 		// reachable after the join completes. Retry the Hello briefly so
-		// the user-visible delay between joining and pair-ready stays tight.
+		// the user-visible delay between joining and ready stays tight.
 		TextTransferable hello{helloBody(ctx.localDeviceName)};
 		for (int attempt = 1; attempt <= kHelloAfterJoinRetries; ++attempt) {
 			std::this_thread::sleep_for(std::chrono::milliseconds(kHelloRetryMs));
@@ -271,14 +284,15 @@ void clientHandshakeAndJoin(BetterSendContext& ctx, const Device& peer) {
 				BS_LOG_INFO(kApiComponent,
 					"Sent Hello to host {}:{} (attempt {} after join)",
 					hostIp, hostPort, attempt);
+				fire(peer.name, 2);  // ready
 				return;
 			}
 		}
-		BS_LOG_ERROR(kApiComponent,
-			"Hello to '{}' failed after join; peer will retry on next BLE sighting",
-			peer.name);
+		BS_LOG_ERROR(kApiComponent, "Hello to '{}' failed after join", peer.name);
+		fire(peer.name, 3);
 	} catch (const std::exception& e) {
-		BS_LOG_ERROR(kApiComponent, "Client handshake failed: {}", e.what());
+		BS_LOG_ERROR(kApiComponent, "Client connect failed: {}", e.what());
+		fire(peer.name, 3);
 	}
 }
 #endif
@@ -508,34 +522,13 @@ void bettersend_start_discovery(void* handle, DeviceFoundCallback onFound) {
 				if (info.port == 0) info.port = d.port;
 			}
 
-			// Phase 1 tie-break — each platform takes its fixed role on
-			// peer sight. broker / handshake throw if asked to play the
-			// wrong role, so we dispatch by build-time platform tag.
+			// Phase 1: discovery only SURFACES peers now. The Mac no longer
+			// auto-joins on sight — the user taps a specific peer to connect
+			// (bettersend_connect_peer), which is what disambiguates between
+			// multiple visible hosts. Windows still brings its host up eagerly
+			// (idempotent retry here + the detached eager worker below).
 #if defined(_WIN32)
 			BetterSend::ensureHostStarted(*ctx, BetterSend::kDefaultPort);
-#elif defined(__APPLE__)
-			bool shouldSpawn = false;
-			{
-				std::lock_guard lock(ctx->peersMu);
-				auto& info = ctx->peersByName[d.name];
-				const auto now = std::chrono::steady_clock::now();
-				const bool inCooldown =
-					info.lastAttempt.time_since_epoch().count() != 0 &&
-					now - info.lastAttempt < std::chrono::seconds(BetterSend::kPeerRetrySec);
-				if (!info.helloSent && !info.attemptInFlight && !inCooldown) {
-					info.attemptInFlight = true;
-					info.lastAttempt     = now;
-					shouldSpawn          = true;
-				}
-			}
-			if (shouldSpawn) {
-				BetterSend::Device snap = d;
-				std::thread([ctx, snap]() mutable {
-					BetterSend::clientHandshakeAndJoin(*ctx, snap);
-					std::lock_guard lock(ctx->peersMu);
-					ctx->peersByName[snap.name].attemptInFlight = false;
-				}).detach();
-			}
 #endif
 
 			if (onFound) {
@@ -590,6 +583,83 @@ void bettersend_start_discovery(void* handle, DeviceFoundCallback onFound) {
 
 void bettersend_free_cstr(const char* p) {
 	delete[] const_cast<char*>(p);
+}
+
+// User-initiated connect to a specific discovered peer. This is the ONLY
+// place a Wi-Fi join now happens — discovery no longer auto-joins. Mac:
+// GATT-read the tapped peer's hotspot credentials and join its Wi-Fi.
+// Windows: it is already the host AP, so it just waits for the Mac's post-join
+// Hello to reveal the Mac's hotspot IP. Progress + result arrive on `cb`
+// (see ConnectStatusCallback). Runs on a detached worker — never blocks the
+// Dart-FFI caller thread (joinNetwork/fetchPayload take seconds).
+void bettersend_connect_peer(void* handle, const char* peerName,
+                             BetterSend::ConnectStatusCallback cb) {
+	if (!handle || !peerName) return;
+	try {
+		auto* ctx = static_cast<BetterSend::BetterSendContext*>(handle);
+		const std::string name = peerName;
+#if defined(__APPLE__)
+		BetterSend::Device peer;
+		peer.name = name;
+		peer.port = BetterSend::kDefaultPort;
+		bool already = false;
+		bool spawn   = false;
+		{
+			std::lock_guard lock(ctx->peersMu);
+			auto it = ctx->peersByName.find(name);
+			if (it == ctx->peersByName.end()) {
+				BS_LOG_ERROR("API", "connect_peer: unknown peer '{}'", name);
+			} else {
+				peer.ip   = it->second.peerId;   // "ble:<id>" the GATT read needs
+				peer.port = it->second.port ? it->second.port
+				                            : BetterSend::kDefaultPort;
+				if (it->second.helloSent && !it->second.ip.empty()) {
+					already = true;              // already connected — re-send fast path
+				} else if (!it->second.attemptInFlight) {
+					it->second.attemptInFlight = true;
+					spawn = true;
+				}
+			}
+		}
+		if (already) {
+			if (cb) cb(BetterSend::heapCopy(name), 2);
+			return;
+		}
+		if (spawn) {
+			std::thread([ctx, peer, cb]() {
+				BetterSend::clientHandshakeAndJoin(*ctx, peer, cb);
+				std::lock_guard lock(ctx->peersMu);
+				ctx->peersByName[peer.name].attemptInFlight = false;
+			}).detach();
+		}
+		// else: a connect is already in flight for this peer; its callback
+		// drives the spinner. (The Dart bridge also de-dupes by peer name.)
+#elif defined(_WIN32)
+		// Windows hosts the network — nothing to join. The Mac becomes
+		// reachable only once its post-join Hello populates PeerInfo.ip, so
+		// poll for that and report ready/failed to keep the UI symmetric.
+		std::thread([ctx, name, cb]() {
+			if (cb) cb(BetterSend::heapCopy(name), 0);   // connecting
+			for (int i = 0; i < BetterSend::kConnectTimeoutSec; ++i) {
+				{
+					std::lock_guard lock(ctx->peersMu);
+					auto it = ctx->peersByName.find(name);
+					if (it != ctx->peersByName.end() && !it->second.ip.empty()) {
+						if (cb) cb(BetterSend::heapCopy(name), 2);
+						return;
+					}
+				}
+				std::this_thread::sleep_for(std::chrono::seconds(1));
+			}
+			BS_LOG_ERROR("API", "connect_peer: '{}' never reachable (no Hello)", name);
+			if (cb) cb(BetterSend::heapCopy(name), 3);
+		}).detach();
+#else
+		(void)ctx; (void)name; (void)cb;
+#endif
+	} catch (const std::exception& e) {
+		BS_LOG_ERROR("API", "bettersend_connect_peer failed: {}", e.what());
+	}
 }
 
 // Send a Request control to peer. The actual file bytes are sent only after

@@ -67,6 +67,13 @@ inline constexpr int kPeerStaleSec     = 10;
 // errors. After this many seconds we let the next attempt through.
 inline constexpr int kPeerRetrySec     = 30;
 
+// Overall deadline for a user-initiated connect (bettersend_connect_peer).
+// The Mac client worker (GATT read + Wi-Fi join + Hello) and the Windows host
+// poll (wait for the Mac's Hello to populate its hotspot IP) both give up
+// after this many seconds and report a failed connect to the UI spinner.
+// Kept in lockstep with the Dart-side connect timeout in ffi_bridge.dart.
+inline constexpr int kConnectTimeoutSec = 25;
+
 // ── Logger ────────────────────────────────────────────────────────────────────
 inline constexpr char kDefaultLogFile[] = "bettersend_debug.log";
 
