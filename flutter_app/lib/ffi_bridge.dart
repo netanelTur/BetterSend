@@ -76,6 +76,9 @@ typedef _NativeSetDeclineCb = Void Function(
 typedef _DartSetDeclineCb   = void Function(
 	Pointer<Void>, Pointer<NativeFunction<NativeTransferDeclineCb>>);
 
+typedef _NativeSetSaveDir = Void Function(Pointer<Void>, Pointer<Utf8>);
+typedef _DartSetSaveDir   = void Function(Pointer<Void>, Pointer<Utf8>);
+
 typedef _NativeFreeCstr = Void Function(Pointer<Utf8>);
 typedef _DartFreeCstr   = void Function(Pointer<Utf8>);
 
@@ -92,6 +95,7 @@ final _acceptTransfer   = _lib.lookupFunction<_NativeAcceptTransfer,  _DartAccep
 final _declineTransfer  = _lib.lookupFunction<_NativeDeclineTransfer, _DartDeclineTransfer> ('bettersend_decline_transfer');
 final _setReqCb         = _lib.lookupFunction<_NativeSetReqCb,        _DartSetReqCb>        ('bettersend_set_request_callback');
 final _setDeclineCb     = _lib.lookupFunction<_NativeSetDeclineCb,    _DartSetDeclineCb>    ('bettersend_set_decline_callback');
+final _setSaveDir       = _lib.lookupFunction<_NativeSetSaveDir,      _DartSetSaveDir>      ('bettersend_set_save_dir');
 final _freeCstr         = _lib.lookupFunction<_NativeFreeCstr,        _DartFreeCstr>        ('bettersend_free_cstr');
 
 // ── 4. BetterSendBridge ───────────────────────────────────────────────────────
@@ -182,6 +186,17 @@ class BetterSendBridge {
 			malloc.free(idPtr);
 		}
 		return id;
+	}
+
+	/// Set the directory where incoming files are saved. Pass an empty string
+	/// to fall back to the OS temp folder. Takes effect for the next transfer.
+	void setSaveDir(String dir) {
+		final dirPtr = dir.toNativeUtf8();
+		try {
+			_setSaveDir(_handle, dirPtr);
+		} finally {
+			malloc.free(dirPtr);
+		}
 	}
 
 	/// Send a clipboard text to [device].

@@ -433,7 +433,7 @@
     <span style="background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;">Future — Cloud Room</span>
   </div>
   <div class="meta">
-    <span>עדכון אחרון: 2026-06-07 (Phase 1 Path B — manual Wi-Fi join + Hello retry; CoreWLAN join stripped, Fix 3 nil-out reverted)</span>
+    <span>עדכון אחרון: 2026-06-08 (תיקיית שמירה נבחרת ע"י המשתמש — setSaveDirectory ב-TcpTransport + bettersend_set_save_dir + בורר תיקייה ב-UI)</span>
     <span>שלב פעיל: Phase 1 — צינור: BLE discovery → GATT handshake → המשתמש מצטרף ל-hotspot ידנית מתפריט Wi-Fi של macOS → לולאת Hello עד שהיא מצליחה → TCP. Control plane של request/accept/decline פעיל; הקפיצה האוטומטית ל-Wi-Fi מחכה ל-NEHotspotConfiguration ב-Path A.</span>
   </div>
 </div>
@@ -1784,6 +1784,23 @@ target_link_libraries(bettersend_core <span class="kw">PRIVATE</span>
       </div>
     </div>
     <div class="code-row highlight">
+      <div class="code-cell">  <span class="kw">Future</span>&lt;<span class="kw">void</span>&gt; <span class="fn">_initSaveDir</span>() <span class="kw">async</span> {
+    <span class="kw">final</span> dir = <span class="kw">await</span> <span class="fn">getDownloadsDirectory</span>();
+    widget.bridge.<span class="fn">setSaveDir</span>(dir.path);   <span class="cm">// push default to native</span>
+  }
+  <span class="kw">Future</span>&lt;<span class="kw">void</span>&gt; <span class="fn">_pickSaveDir</span>() <span class="kw">async</span> {
+    <span class="kw">final</span> picked = <span class="kw">await</span> <span class="ty">FilePicker</span>.platform.<span class="fn">getDirectoryPath</span>();
+    widget.bridge.<span class="fn">setSaveDir</span>(picked);
+    <span class="fn">setState</span>(() =&gt; _saveDir = picked);
+  }</div>
+      <div class="anno-cell key">
+        <div>
+          <strong>תיקיית שמירה לבחירת המשתמש.</strong> ברירת מחדל = תיקיית ההורדות של ה-OS (<code>getDownloadsDirectory</code> מ-path_provider), נדחפת ל-native מיד ב-<code>initState</code>.<br>
+          כרטיס "Save received files to" ב-UI מציג את התיקייה הנוכחית + כפתור Change שפותח <code>getDirectoryPath</code> ומעדכן את ה-core דרך <code>bridge.setSaveDir</code> → <code>bettersend_set_save_dir</code> → <code>TcpTransport::setSaveDirectory</code>.
+        </div>
+      </div>
+    </div>
+    <div class="code-row highlight">
       <div class="code-cell">  <span class="kw">class</span> <span class="ty">_DeviceCard</span> <span class="kw">extends</span> <span class="ty">StatelessWidget</span> {
     <span class="kw">final</span> <span class="ty">DiscoveredDevice</span> device;
     <span class="kw">final</span> <span class="ty">VoidCallback</span> onSend;
@@ -1978,14 +1995,15 @@ nlohmann::json::parse(data[4..4+jsonLen]);</div>
 //   async_accept → per-session detached thread:
 //     asio::read 4-byte BE length
 //     asio::read jsonLen bytes → IProtocol::decodeHeader
-//     File: stream chunks (kReceiveBufferSize) to temp file
+//     File: stream chunks (kReceiveBufferSize) to saveDir_/<ts>_<name>
 //     Clipboard: read full size into string
 //     onReceive(Transfer{senderName, senderIp, name, sizeBytes, data})
 //
+// setSaveDirectory(dir): mutex-guarded; empty → temp fallback.
 // send: blocking connect, write header bytes + payload bytes.
 // stop: acceptor.close + io.stop + join</div>
       <div class="anno-cell info">
-        <strong>מבנה Pimpl (<code>struct Impl</code>) מסתיר את Asio מ-headers ציבוריים.</strong> <code>Transfer.senderIp</code> נשלף מ-<code>sock.remote_endpoint()</code> — מהותי ב-Phase 1 כי Windows לומד את ה-Mac IP על subnet ה-hotspot רק מהחבילה הראשונה (ה-Hello של מק). 4 localhost round-trip tests עוברים (clipboard, file 8KB, 3 sequential, stop-no-crash).
+        <strong>מבנה Pimpl (<code>struct Impl</code>) מסתיר את Asio מ-headers ציבוריים.</strong> <code>Transfer.senderIp</code> נשלף מ-<code>sock.remote_endpoint()</code> — מהותי ב-Phase 1 כי Windows לומד את ה-Mac IP על subnet ה-hotspot רק מהחבילה הראשונה (ה-Hello של מק). <strong>תיקיית שמירה:</strong> <code>makeIncomingFilePath(name, saveDir)</code> כותב ל-<code>saveDir_</code> אם הוגדר, אחרת ל-<code>bettersend_incoming</code> מתחת ל-temp. <code>setSaveDirectory</code> נעול ב-<code>saveDirMu_</code> כי קבלה רצה על threads ברקע וה-UI עשוי לעדכן במקביל. 4 localhost round-trip tests עוברים (clipboard, file 8KB, 3 sequential, stop-no-crash).
       </div>
     </div>
   </div>

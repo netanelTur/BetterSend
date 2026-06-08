@@ -97,6 +97,8 @@ flutter run -d windows
 >
 > **Send flow is gated by user consent.** When you press Send, the sender first transmits a `Request` control message; the receiver sees an "Incoming file" dialog with `Accept` / `Decline` buttons. The actual file bytes are pushed only after the receiver accepts. Control messages ride on the existing Clipboard wire format with a `"BS\t"` JSON prefix; no protocol changes.
 >
+> **Receiver picks the save folder.** The home screen has a "Save received files to" card; it defaults to the OS Downloads directory and a Change button opens a native folder picker. The choice flows `bridge.setSaveDir` → `bettersend_set_save_dir` → `TcpTransport::setSaveDirectory`; incoming files land in `<chosen-dir>/<timestamp>_<name>`. Empty selection falls back to a `bettersend_incoming` folder under the OS temp dir.
+>
 > **Live peer list** — `kPeerHeartbeatSec=2` and `kPeerStaleSec=10` in `Constants.h` define how the UI keeps the device list fresh: native re-emits each peer every 2s; Flutter prunes peers not seen for 10s. Both sides dedupe by case-insensitive name (Windows can advertise under both `NETANELTUR` and `NetanelTur` simultaneously; we surface a single canonical entry).
 >
 > macOS requires Bluetooth permission. `Info.plist` carries `NSBluetoothAlwaysUsageDescription`; both entitlements files declare `com.apple.security.device.bluetooth` **and** `com.apple.security.files.user-selected.read-only` (the second is needed for the file picker to actually return a usable path under the App Sandbox).

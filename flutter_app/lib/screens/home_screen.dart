@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../ffi_bridge.dart';
 
@@ -22,11 +23,30 @@ class _HomeScreenState extends State<HomeScreen> {
 	final Map<String, DateTime>     _lastSeen  = {};
 	final List<ReceivedTransfer>    _received  = [];
 	Timer?                          _pruner;
+	String?                         _saveDir;
 
 	@override
 	void initState() {
 		super.initState();
 		_initBridge();
+		_initSaveDir();
+	}
+
+	// Default the save folder to the OS Downloads dir so files land somewhere
+	// sensible before the user picks. Pushed down to native immediately.
+	Future<void> _initSaveDir() async {
+		final dir = await getDownloadsDirectory();
+		if (dir == null || !mounted) return;
+		widget.bridge.setSaveDir(dir.path);
+		setState(() => _saveDir = dir.path);
+	}
+
+	Future<void> _pickSaveDir() async {
+		final picked = await FilePicker.platform.getDirectoryPath(
+			dialogTitle: 'Choose where received files are saved');
+		if (picked == null || !mounted) return;
+		widget.bridge.setSaveDir(picked);
+		setState(() => _saveDir = picked);
 	}
 
 	void _initBridge() {
@@ -190,6 +210,24 @@ class _HomeScreenState extends State<HomeScreen> {
 						),
 
 						const SizedBox(height: 24),
+
+						// ── Save folder ────────────────────────────────────────────
+						Card(
+							child: ListTile(
+								leading: const Icon(Icons.folder, size: 28),
+								title: const Text('Save received files to',
+									style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+								subtitle: Text(_saveDir ?? 'Default (temp folder)',
+									style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
+									overflow: TextOverflow.ellipsis),
+								trailing: TextButton(
+									onPressed: _pickSaveDir,
+									child: const Text('Change'),
+								),
+							),
+						),
+
+						const SizedBox(height: 16),
 
 						// ── Received transfers ────────────────────────────────────
 						const Text('Received',

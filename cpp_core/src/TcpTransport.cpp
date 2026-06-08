@@ -44,8 +44,11 @@ uint32_t readBigEndianU32(const uint8_t* in) {
 	     |  static_cast<uint32_t>(in[3]);
 }
 
-std::filesystem::path makeIncomingFilePath(const std::string& filename) {
-	const auto base = std::filesystem::temp_directory_path() / "bettersend_incoming";
+std::filesystem::path makeIncomingFilePath(const std::string& filename,
+                                           const std::string& saveDir) {
+	const auto base = saveDir.empty()
+		? std::filesystem::temp_directory_path() / "bettersend_incoming"
+		: std::filesystem::path(saveDir);
 	std::error_code ec;
 	std::filesystem::create_directories(base, ec);
 	const auto stamp = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -74,6 +77,13 @@ TcpTransport::TcpTransport(std::shared_ptr<IProtocol> protocol,
 {}
 
 TcpTransport::~TcpTransport() { stop(); }
+
+void TcpTransport::setSaveDirectory(std::string dir) {
+	std::lock_guard<std::mutex> lk(saveDirMu_);
+	saveDir_ = std::move(dir);
+	BS_LOG_INFO(kComponent, "Incoming-file save directory set to '{}'",
+		saveDir_.empty() ? "<temp>" : saveDir_);
+}
 
 void TcpTransport::startServer(int port, std::function<void(Transfer)> onReceive) {
 	if (running_.exchange(true)) {
@@ -155,7 +165,12 @@ void TcpTransport::startServer(int port, std::function<void(Transfer)> onReceive
 
 						// 3) Payload
 						if (transfer.type == Transfer::Type::File) {
-							const auto path = makeIncomingFilePath(hdr.name);
+							std::string saveDir;
+							{
+								std::lock_guard<std::mutex> lk(saveDirMu_);
+								saveDir = saveDir_;
+							}
+							const auto path = makeIncomingFilePath(hdr.name, saveDir);
 							std::ofstream out(path, std::ios::binary | std::ios::trunc);
 							if (!out) {
 								BS_LOG_ERROR(kComponent, "Cannot open incoming file {}",

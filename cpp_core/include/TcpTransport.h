@@ -4,6 +4,7 @@
 
 #include <atomic>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 
@@ -22,6 +23,11 @@ public:
 	bool send(const std::string& ip, int port, const ITransferable& item) override;
 	void stop() override;
 
+	// Directory where incoming files are written. Empty (default) → a
+	// "bettersend_incoming" folder under the OS temp dir. Thread-safe:
+	// receive runs on background threads, the UI may set this concurrently.
+	void setSaveDirectory(std::string dir);
+
 private:
 	struct Impl;
 	std::unique_ptr<Impl> impl_;
@@ -31,6 +37,9 @@ private:
 	std::function<void(Transfer)>   onReceive_;
 	std::thread                     ioThread_;
 	std::atomic<bool>               running_{false};
+
+	std::mutex                      saveDirMu_;
+	std::string                     saveDir_;   // empty → OS temp fallback
 };
 
 } // namespace BetterSend

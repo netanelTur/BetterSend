@@ -472,6 +472,16 @@ void bettersend_start_server(void* handle, int port,
 	}
 }
 
+void bettersend_set_save_dir(void* handle, const char* dir) {
+	if (!handle) return;
+	try {
+		auto* ctx = static_cast<BetterSend::BetterSendContext*>(handle);
+		ctx->transport->setSaveDirectory(dir ? dir : "");
+	} catch (const std::exception& e) {
+		BS_LOG_ERROR("API", "bettersend_set_save_dir failed: {}", e.what());
+	}
+}
+
 void bettersend_start_advertising(void* handle, int port) {
 	if (!handle) return;
 	try {
