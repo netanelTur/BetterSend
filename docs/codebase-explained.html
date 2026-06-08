@@ -434,7 +434,7 @@
     <span style="background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;">Future — Cloud Room</span>
   </div>
   <div class="meta">
-    <span>עדכון אחרון: 2026-06-08 (Tap-to-Connect — המק מתחבר ל-Wi-Fi רק בלחיצת משתמש על מכשיר ספציפי; bettersend_connect_peer + ConnectStatusCallback + connectToPeer + ספינר; הוסר auto-join)</span>
+    <span>עדכון אחרון: 2026-06-08 (Tap-to-Connect — המק מתחבר ל-Wi-Fi רק בלחיצת משתמש; bettersend_connect_peer + ConnectStatusCallback + connectToPeer + ספינר; הוסר auto-join. + BLE scan duty-cycle כדי ש-Windows יראה את המק)</span>
     <span>שלב פעיל: Phase 1 — צינור: BLE discovery (רק חושף peers) → המשתמש לוחץ על מכשיר → bettersend_connect_peer מריץ worker מנותק: GATT handshake → joinNetwork (CoreWLAN open scan + associate) → לולאת Hello → TCP. Control plane של request/accept/decline פעיל.</span>
   </div>
 </div>
@@ -2368,6 +2368,24 @@ onSend: () =&gt; _connectAndSend(device);
 //                       -> false: error SnackBar (tap to retry)</div>
       <div class="anno-cell info">
         <strong>UI (2026-06-08):</strong> לחיצה על מכשיר פותחת דיאלוג ספינר לא-נסגר "Connecting to X…" עם Cancel. <code>connectToPeer</code> מחזיר <code>Future&lt;bool&gt;</code> שמסתיים על status 2 (true) / 3 (false), עם Timer של 25s כרשת ביטחון כדי שהספינר לא ייתקע (ה-worst case של ה-native יכול לעבור את הזמן). בהצלחה — הספינר נסגר ונפתח בורר הקבצים (הזרימה הקיימת); בכשלון — SnackBar. Cancel סוגר את הדיאלוג; תוצאה מאוחרת מתעדכנת ברקע ולא מחזירה את הדיאלוג. ה-<code>peerName</code> שה-native מקצה ב-heap משוחרר ב-Dart דרך <code>bettersend_free_cstr</code> בכל callback. אותו gate הוסף גם ל-<code>device_list_screen.dart</code>.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── BLE scan duty-cycle — Windows רואה את המק (2026-06-08) ───────────────── -->
+<div id="ble-duty-cycle" class="file-section">
+  <h2>BLE scan duty-cycle — כדי ש-Windows יראה את המק</h2>
+  <div class="path">cpp_core/src/BleDiscovery_Mac.mm + include/Constants.h (kBleScanWindowMs / kBleAdvertiseWindowMs)</div>
+  <div class="code-rows">
+    <div class="code-row">
+      <div class="code-cell">// BleDiscovery_Mac.mm — was: scan continuously (AllowDuplicates) forever.
+// now: scan kBleScanWindowMs (4000) -> stop scan kBleAdvertiseWindowMs (2500) -> loop
+void startScanDutyCycle();                 // bumps a generation token, schedules window
+static void scheduleScanWindow(BSBleMacDelegate* d, dispatch_queue_t q, uint64_t gen);
+//   captures the delegate (ARC-retained) + gen, NEVER `this` —
+//   a stale gen (stop/pauseScan/restart) makes the block a no-op.</div>
+      <div class="anno-cell info">
+        <strong>הבעיה (2026-06-08):</strong> המק רואה את Netanel תוך שנייה, אבל Windows לא רואה את המק <em>בכלל</em>. צד Windows תקין (<a href="#">BleDiscovery_Windows</a> סורק Active ויודע לקרוא את ה-ServiceUUID+LocalName advert של המק) — הבעיה היא שה-advert של המק כמעט לא משודר: בסיליקון של Apple ה-BT וה-Wi-Fi חולקים אנטנה אחת, וסריקה רציפה עם <code>AllowDuplicates=YES</code> מחזיקה את הרדיו ב-RX ומרעיבה את ה-<code>CBPeripheralManager</code> advertise. <strong>הפתרון:</strong> duty-cycle — סורקים 4s, ואז עוצרים את הסריקה 2.5s כדי שה-advert ישודר בחלון נקי, וחוזרים. המק עדיין רואה את Netanel (שמשדר רציף) בחלונות הסריקה. זה <em>לא</em> נוגע ב-tap→join→transfer (זה עובד — לא נשבר). הערה: כבר ניסינו duty-cycle בעבר (failed-attempts §2) וזה לא הספיק — אבל אז רץ גם handshake central רציף שהתחרה על האנטנה; עכשיו ה-handshake רץ רק בלחיצה, אז ה-duty-cycle הוא הצרכן היחיד. <strong>טעון אימות מול Windows אמיתי.</strong></div>
     </div>
   </div>
 </div>
