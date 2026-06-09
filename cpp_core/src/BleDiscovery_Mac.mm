@@ -80,16 +80,23 @@ static std::string toLowerAscii(const std::string& s) {
 	return out;
 }
 
-static std::string extractWindowsPeerName(NSData* mfgData) {
+static std::string extractWindowsPeerName(NSData* mfgData, bool& connectRequested) {
+	connectRequested = false;
 	if (!mfgData) return {};
 	const NSUInteger headLen = 2 + sizeof(kBleMagicBytes);
 	if (mfgData.length < headLen) return {};
 	const uint8_t* p = static_cast<const uint8_t*>(mfgData.bytes);
 	if (p[0] != (kBleCompanyId & 0xFF)) return {};
 	if (p[1] != ((kBleCompanyId >> 8) & 0xFF)) return {};
+	// Match the magic. Last byte selects the variant: kBleMagicBytes (normal)
+	// or kBleConnectMagicBytes (the host is asking us to connect).
+	bool normal = true, connect = true;
 	for (size_t i = 0; i < sizeof(kBleMagicBytes); ++i) {
-		if (p[2 + i] != kBleMagicBytes[i]) return {};
+		if (p[2 + i] != kBleMagicBytes[i])        normal  = false;
+		if (p[2 + i] != kBleConnectMagicBytes[i]) connect = false;
 	}
+	if (!normal && !connect) return {};
+	connectRequested = connect;
 	return std::string(reinterpret_cast<const char*>(p + headLen),
 		mfgData.length - headLen);
 }
@@ -211,7 +218,8 @@ public:
 	void onPeripheralReady() { kickAdvertise(); }
 	void onCentralReady()    { kickScan();      }
 
-	void onPeerDiscovered(const std::string& peerName, NSString* fallbackId) {
+	void onPeerDiscovered(const std::string& peerName, NSString* fallbackId,
+	                      bool connectRequested) {
 		if (peerName.empty()) return;
 		// Throttle + canonical-name dedupe. BLE adverts fire 10–30 Hz; we
 		// surface a single event every kPeerHeartbeatSec so the Flutter side
@@ -220,6 +228,9 @@ public:
 		// magic+name in UPPERCASE; GattServiceProvider carrying the system
 		// Bluetooth friendly name in mixed case) collapse to a single entry.
 		// First name seen wins as the canonical display string.
+		// A connect-request advert BYPASSES the throttle so the join fires
+		// promptly when the host's user taps (the API layer's attemptInFlight
+		// guard absorbs the resulting burst of identical events).
 		const std::string key = toLowerAscii(peerName);
 		const auto now = std::chrono::steady_clock::now();
 		std::string canonical;
@@ -227,7 +238,8 @@ public:
 			std::lock_guard<std::mutex> lock(seenMu_);
 			auto& entry = throttle_[key];
 			if (entry.canonical.empty()) entry.canonical = peerName;
-			if (entry.lastEmit.time_since_epoch().count() != 0 &&
+			if (!connectRequested &&
+			    entry.lastEmit.time_since_epoch().count() != 0 &&
 			    now - entry.lastEmit < std::chrono::seconds(kPeerHeartbeatSec)) {
 				return;
 			}
@@ -235,9 +247,12 @@ public:
 			canonical = entry.canonical;
 		}
 		const std::string idStr = fallbackId ? std::string(fallbackId.UTF8String) : canonical;
-		BS_LOG_INFO(kComponent, "Found peer: name='{}' id={}", canonical, idStr);
+		BS_LOG_INFO(kComponent, "Found peer: name='{}' id={} connectReq={}",
+			canonical, idStr, connectRequested);
 		if (onFound_) {
-			onFound_(Device{canonical, std::string("ble:") + idStr, kDefaultPort});
+			Device d{canonical, std::string("ble:") + idStr, kDefaultPort};
+			d.connectRequested = connectRequested;
+			onFound_(d);
 		}
 	}
 
@@ -385,15 +400,18 @@ std::unique_ptr<IDiscovery> makeDiscovery() {
 	}
 
 	// Path B — Windows peer: ManufacturerData carries [0xFF 0xFF][magic][name].
+	// The magic variant tells us whether the host is requesting we connect.
+	bool connectRequested = false;
 	if (name.empty()) {
 		NSData* mfgData = advertisementData[CBAdvertisementDataManufacturerDataKey];
-		name = extractWindowsPeerName(mfgData);
+		name = extractWindowsPeerName(mfgData, connectRequested);
 	}
 
 	if (name.empty()) return; // neither signature — not a BetterSend peer
 
 	if (self.owner) {
-		self.owner->onPeerDiscovered(name, peripheral.identifier.UUIDString);
+		self.owner->onPeerDiscovered(name, peripheral.identifier.UUIDString,
+			connectRequested);
 	}
 }
 

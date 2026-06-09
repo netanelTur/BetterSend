@@ -481,7 +481,7 @@
     <span style="background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;">Future — Cloud Room</span>
   </div>
   <div class="meta">
-    <span>עדכון אחרון: 2026-06-09 (auto-join הוסר שוב — הוא התנגש עם ה-tap [auto-join עם cb=nullptr → connect_peer לא ירה callback → ספינר נתקע 25s → "לא מתחבר"]. חזרה ל-tap-to-connect בלבד; connect_peer יורה cb(3) על peer לא מוכר כדי שהספינר לא ייתקע. מודל Phase 1: רק המק מצטרף ל-hotspot → המק לוחץ קודם, אחר כך שני הכיוונים. UX סימטרי [Windows יוזם] = Step 2 עתידי [trigger דרך advert]. Double-card collapse בצד Flutter נשאר.)</span>
+    <span>עדכון אחרון: 2026-06-09 (Step 2 — tap-to-connect סימטרי: גם Windows יכול ליזום. Windows-tap משדר connect-request ב-advert [kBleConnectMagicBytes D1 במקום D0] → המק מזהה ומצטרף → Hello → ה-poll של Windows רואה IP → ספינר נסגר. setConnectRequested ב-IDiscovery; Device.connectRequested; connect_peer של המק עושה poll במקום להיתקע. צד Windows טעון אימות אצל Netanel.)</span>
     <span>עדכון קודם: 2026-06-09 (תוקן באג פריסה בעמודת ההסברים; הושלם תיעוד לקבצים שחסרו — Device.h, Logger.h, IClipboard.h, CMakeLists.txt, בדיקות GTest, transfer_screen.dart, device_list_screen.dart; תוקנו קישורי TOC שבורים)</span>
     <span>עדכון קודם: 2026-06-09 (תיקון עיצוב — sections מ-IConnectionBroker.h ואילך; מיזוג 0a3e58b: שם placeholder ל-Windows כשאין LocalName + ביטול duty-cycle של BLE)</span>
     <span>שלב פעיל: Phase 1 — צינור: BLE discovery → Windows מקים hotspot (eager) → המק עושה auto-join ב-peer-sight (GATT → joinNetwork → Hello); tap = ensure-connected + send. Control plane של request/accept/decline פעיל.</span>
@@ -2671,6 +2671,33 @@ if (!_devices.any((e) =&gt; e.name == d.name)) _devices.add(d);</div>
       <div class="anno-cell info">
         <strong>בורר יעד עצמאי לזרימות share-sheet / drag-and-drop (Phase 4).</strong> <a href="#homescreen">HomeScreen</a> עושה את השליחה inline (בחר קובץ → בחר מכשיר), אז המסך הזה שמור למצב ההפוך — כבר יש <code>filePath</code> <em>או</em> <code>clipboardText</code> ורק צריך לבחור למי. ה-<code>_send</code> משכפל את ה-gate של "connect ואז send": פותח ספינר, מריץ <code>connectToPeer</code>, ורק על הצלחה שולח (קובץ → דרך <a href="#transfer-screen">TransferScreen</a>, clipboard → ישירות). מציג ספינר "Scanning…" כשאין מכשירים.
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Step 2 — tap-to-connect סימטרי [Windows יוזם] (2026-06-09) ──────────── -->
+<div id="symmetric-connect" class="file-section">
+  <h2>Symmetric connect — Windows יכול ליזום חיבור</h2>
+  <div class="path">Constants.h kBleConnectMagicBytes · IDiscovery::setConnectRequested · BleDiscovery_{Mac,Windows} · bettersend_api.cpp</div>
+  <div class="code-rows">
+    <div class="code-row">
+      <div class="code-cell">// Constants.h — same length as kBleMagicBytes (D0), only last byte differs
+inline constexpr uint8_t kBleConnectMagicBytes[] = {0xBE,0x77,0xEC,0xD1};
+
+// Windows connect_peer (user tapped the Mac): can't join itself, so INVITE
+if (peer.ip known) -> cb(2);                        // already connected
+else { cb(0); discovery->setConnectRequested(true); // advert D1
+       poll peersByName[mac].ip up to kConnectTimeoutSec;
+       discovery->setConnectRequested(false); cb(ip ? 2 : 3); }
+
+// BleDiscovery_Windows::setConnectRequested(b) -> Stop/Clear/Append/Start
+//   republish ManufacturerData with D1 (b) or D0 (!b)
+
+// BleDiscovery_Mac::extractWindowsPeerName -> connectRequested = matched D1
+// bettersend_start_discovery (Mac): if d.connectRequested -> spawn
+//   clientHandshakeAndJoin(...,nullptr) [guarded by attemptInFlight/helloSent]</div>
+      <div class="anno-cell info">
+        <strong>הרעיון (2026-06-09):</strong> המשתמש רצה UX סימטרי — לוחצים על מכשיר בכל צד → מתחבר → מעבירים. אבל ב-Phase 1 רק המק יכול להצטרף ל-hotspot של Windows, אז לחיצה ב-Windows חייבת <em>לגרום למק להצטרף</em>. הפתרון: Windows מוסיף סימן "connect requested" ל-advert שלו (אותו magic, בייט אחרון D1 במקום D0 — אפס בייטים נוספים, נשארים בתקציב 31). המק כבר מנתח את ה-advert הזה ב-discovery, אז הוא מזהה את D1, מסמן <code>Device.connectRequested</code>, וה-API מפעיל את אותו <code>clientHandshakeAndJoin</code> כמו בלחיצה מקומית. המק מצטרף → Hello → ה-poll של <code>bettersend_connect_peer</code> בצד Windows רואה את ה-IP → סוגר את הספינר. הסימן חוזר ל-D0 בסיום. <strong>בלי GATT/אנטנה נוספים</strong> (לא צריך חיבור BLE נוסף). <strong>בלי auto-join</strong> — המק מצטרף רק כשמזמינים אותו (Windows) או כשלוחצים מקומית, אז אין כאוס ריבוי-מכשירים ואין מירוץ. <code>connect_peer</code> של המק חוזק לעשות <code>poll</code> על join שכבר רץ במקום no-op (מקור ה-hang הקודם). <strong>צד Windows (republish של ה-advert) טעון build+אימות אצל Netanel.</strong></div>
     </div>
   </div>
 </div>

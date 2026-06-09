@@ -52,6 +52,13 @@ public:
 	// are no-ops so non-BLE backends don't have to care.
 	virtual void pauseAdvertise()  {}
 	virtual void resumeAdvertise() {}
+
+	// Host-side connect invite (Phase 1 Windows). When the host's user taps a
+	// peer to send to it, the host re-advertises a "connect requested" marker
+	// so the client (Mac — the only side that can join the hotspot) initiates
+	// the Wi-Fi join from its end. Set false once the peer is reachable.
+	// Default no-op for non-BLE backends and for the client side.
+	virtual void setConnectRequested(bool /*requested*/) {}
 };
 
 } // namespace BetterSend

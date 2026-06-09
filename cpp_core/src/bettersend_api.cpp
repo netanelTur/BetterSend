@@ -522,14 +522,38 @@ void bettersend_start_discovery(void* handle, DeviceFoundCallback onFound) {
 				if (info.port == 0) info.port = d.port;
 			}
 
-			// Phase 1: discovery only SURFACES peers. The Mac no longer
-			// auto-joins on sight — the user taps a specific peer to connect
-			// (bettersend_connect_peer). That disambiguates between multiple
-			// visible hosts AND never races a tap (auto-join + tap both driving
-			// the join was the cause of the connect hang). Windows still brings
-			// its host up eagerly (idempotent retry here + the detached worker).
+			// Phase 1: discovery only SURFACES peers. The Mac does NOT auto-join
+			// on every sight (that disambiguates multiple hosts and never races
+			// the local tap). Windows brings its host up eagerly.
 #if defined(_WIN32)
 			BetterSend::ensureHostStarted(*ctx, BetterSend::kDefaultPort);
+#elif defined(__APPLE__)
+			// Symmetric connect: when the HOST's user tapped us, its advert
+			// carries connectRequested. Only the Mac can join the hotspot, so
+			// we initiate the join from here — same path as a local tap, just
+			// triggered remotely. Guarded by attemptInFlight/helloSent so the
+			// burst of connect-request adverts (and any concurrent local tap)
+			// can't double-join. cb is null — no Mac-side spinner; the Mac user
+			// sees the normal incoming-file prompt once the host sends.
+			if (d.connectRequested) {
+				bool spawn = false;
+				{
+					std::lock_guard lock(ctx->peersMu);
+					auto& info = ctx->peersByName[d.name];
+					if (!info.helloSent && !info.attemptInFlight) {
+						info.attemptInFlight = true;
+						spawn = true;
+					}
+				}
+				if (spawn) {
+					BetterSend::Device snap = d;
+					std::thread([ctx, snap]() {
+						BetterSend::clientHandshakeAndJoin(*ctx, snap, nullptr);
+						std::lock_guard lock(ctx->peersMu);
+						ctx->peersByName[snap.name].attemptInFlight = false;
+					}).detach();
+				}
+			}
 #endif
 
 			if (onFound) {
@@ -638,28 +662,59 @@ void bettersend_connect_peer(void* handle, const char* peerName,
 				std::lock_guard lock(ctx->peersMu);
 				ctx->peersByName[peer.name].attemptInFlight = false;
 			}).detach();
+			return;
 		}
-		// else: a connect is already in flight for this peer; its callback
-		// drives the spinner. (The Dart bridge also de-dupes by peer name.)
-#elif defined(_WIN32)
-		// Windows hosts the network — nothing to join. The Mac becomes
-		// reachable only once its post-join Hello populates PeerInfo.ip, so
-		// poll for that and report ready/failed to keep the UI symmetric.
+		// A join is already in flight (a host-invited connect, or a prior tap).
+		// Don't no-op — that would hang THIS spinner with no callback (the old
+		// bug). Poll for the in-flight join's result and report it.
 		std::thread([ctx, name, cb]() {
-			if (cb) cb(BetterSend::heapCopy(name), 0);   // connecting
 			for (int i = 0; i < BetterSend::kConnectTimeoutSec; ++i) {
 				{
 					std::lock_guard lock(ctx->peersMu);
 					auto it = ctx->peersByName.find(name);
-					if (it != ctx->peersByName.end() && !it->second.ip.empty()) {
+					if (it != ctx->peersByName.end() &&
+					    it->second.helloSent && !it->second.ip.empty()) {
 						if (cb) cb(BetterSend::heapCopy(name), 2);
 						return;
 					}
 				}
 				std::this_thread::sleep_for(std::chrono::seconds(1));
 			}
-			BS_LOG_ERROR("API", "connect_peer: '{}' never reachable (no Hello)", name);
 			if (cb) cb(BetterSend::heapCopy(name), 3);
+		}).detach();
+#elif defined(_WIN32)
+		// Windows hosts the network — it cannot join, but the Mac can. So when
+		// the Windows user taps the Mac, broadcast a connect-request marker in
+		// our advert (setConnectRequested) so the Mac initiates the join; then
+		// poll until its post-join Hello populates PeerInfo.ip. Revert the
+		// marker once reachable or on timeout. If already reachable, skip
+		// straight to ready (re-send fast path).
+		std::thread([ctx, name, cb]() {
+			{
+				std::lock_guard lock(ctx->peersMu);
+				auto it = ctx->peersByName.find(name);
+				if (it != ctx->peersByName.end() && !it->second.ip.empty()) {
+					if (cb) cb(BetterSend::heapCopy(name), 2);
+					return;
+				}
+			}
+			if (cb) cb(BetterSend::heapCopy(name), 0);   // connecting
+			ctx->discovery->setConnectRequested(true);
+			bool ok = false;
+			for (int i = 0; i < BetterSend::kConnectTimeoutSec; ++i) {
+				std::this_thread::sleep_for(std::chrono::seconds(1));
+				std::lock_guard lock(ctx->peersMu);
+				auto it = ctx->peersByName.find(name);
+				if (it != ctx->peersByName.end() && !it->second.ip.empty()) {
+					ok = true;
+					break;
+				}
+			}
+			ctx->discovery->setConnectRequested(false);
+			if (!ok) {
+				BS_LOG_ERROR("API", "connect_peer: '{}' never reachable (no Hello)", name);
+			}
+			if (cb) cb(BetterSend::heapCopy(name), ok ? 2 : 3);
 		}).detach();
 #else
 		(void)ctx; (void)name; (void)cb;

@@ -72,9 +72,13 @@ std::string toLowerAscii(const std::string& s) {
 }
 
 // Build the ManufacturerData payload: [magic][name UTF-8], trimmed to fit.
-winrt_strm::IBuffer makeBetterSendPayload(const std::string& deviceName) {
+// connectRequested selects the magic variant (kBleConnectMagicBytes) so the
+// Mac knows we're inviting it to join — same length, zero extra advert bytes.
+winrt_strm::IBuffer makeBetterSendPayload(const std::string& deviceName,
+                                          bool connectRequested) {
 	winrt_strm::DataWriter writer;
-	for (uint8_t b : kBleMagicBytes) writer.WriteByte(b);
+	const uint8_t* magic = connectRequested ? kBleConnectMagicBytes : kBleMagicBytes;
+	for (size_t i = 0; i < sizeof(kBleMagicBytes); ++i) writer.WriteByte(magic[i]);
 	int n = static_cast<int>(deviceName.size());
 	if (n > kBleMaxNameLen) n = kBleMaxNameLen;
 	for (int i = 0; i < n; ++i) writer.WriteByte(static_cast<uint8_t>(deviceName[i]));
@@ -82,16 +86,23 @@ winrt_strm::IBuffer makeBetterSendPayload(const std::string& deviceName) {
 }
 
 // Extract the device name from a peer's ManufacturerData section, verifying
-// the magic prefix. Returns empty string if the entry isn't ours.
+// the magic prefix (either the normal or the connect-request variant).
+// Returns empty string if the entry isn't ours.
 std::string extractPeerName(const winrt_btle::BluetoothLEManufacturerData& md) {
 	if (md.CompanyId() != kBleCompanyId) return {};
 	auto buf = md.Data();
 	if (!buf || buf.Length() < sizeof(kBleMagicBytes)) return {};
 
 	winrt_strm::DataReader reader = winrt_strm::DataReader::FromBuffer(buf);
-	for (uint8_t expected : kBleMagicBytes) {
-		if (reader.ReadByte() != expected) return {};
+	uint8_t got[sizeof(kBleMagicBytes)];
+	for (size_t i = 0; i < sizeof(kBleMagicBytes); ++i) got[i] = reader.ReadByte();
+	bool normal = true, connect = true;
+	for (size_t i = 0; i < sizeof(kBleMagicBytes); ++i) {
+		if (got[i] != kBleMagicBytes[i])        normal  = false;
+		if (got[i] != kBleConnectMagicBytes[i]) connect = false;
 	}
+	if (!normal && !connect) return {};
+
 	uint32_t remaining = buf.Length() - sizeof(kBleMagicBytes);
 	std::string name;
 	name.reserve(remaining);
@@ -122,6 +133,7 @@ public:
 		BS_LOG_INFO(kComponent, "BLE advertise: name='{}' companyId={:#06x}",
 			deviceName, kBleCompanyId);
 
+		advertName_ = deviceName;   // kept so setConnectRequested can republish
 		publisher_ = winrt_btle::BluetoothLEAdvertisementPublisher();
 		auto adv = publisher_.Advertisement();
 
@@ -129,7 +141,7 @@ public:
 		// legacy advertisement budget even with the auto-added AD Flags structure.
 		winrt_btle::BluetoothLEManufacturerData mfg;
 		mfg.CompanyId(kBleCompanyId);
-		mfg.Data(makeBetterSendPayload(deviceName));
+		mfg.Data(makeBetterSendPayload(deviceName, connectRequested_.load()));
 		adv.ManufacturerData().Append(mfg);
 
 		publisher_.StatusChanged([this](auto&&, auto const& args) {
@@ -142,6 +154,30 @@ public:
 			advertising_.store(true);
 		} catch (const winrt::hresult_error& e) {
 			BS_LOG_ERROR(kComponent, "Advertise Start failed: {:#x} — {}",
+				static_cast<uint32_t>(e.code().value),
+				hstringToStdString(e.message()));
+		}
+	}
+
+	// Host-side connect invite: republish the advert with the connect-request
+	// magic so the Mac (the only side that can join the hotspot) starts the
+	// join. Called with true when the Windows user taps a peer, false once the
+	// peer is reachable or on timeout (see bettersend_connect_peer).
+	void setConnectRequested(bool requested) override {
+		connectRequested_.store(requested);
+		if (!advertising_.load()) return;
+		try {
+			publisher_.Stop();
+			auto adv = publisher_.Advertisement();
+			adv.ManufacturerData().Clear();
+			winrt_btle::BluetoothLEManufacturerData mfg;
+			mfg.CompanyId(kBleCompanyId);
+			mfg.Data(makeBetterSendPayload(advertName_, requested));
+			adv.ManufacturerData().Append(mfg);
+			publisher_.Start();
+			BS_LOG_INFO(kComponent, "Advertise connectRequested={}", requested);
+		} catch (const winrt::hresult_error& e) {
+			BS_LOG_ERROR(kComponent, "setConnectRequested republish failed: {:#x} — {}",
 				static_cast<uint32_t>(e.code().value),
 				hstringToStdString(e.message()));
 		}
@@ -292,6 +328,8 @@ private:
 	std::function<void(Device)>                    onFound_;
 	std::atomic<bool>                              advertising_{false};
 	std::atomic<bool>                              scanning_{false};
+	std::string                                    advertName_;          // for republish
+	std::atomic<bool>                              connectRequested_{false};
 	std::mutex                                     seenMu_;
 	std::unordered_map<std::string, ThrottleEntry> throttle_;
 

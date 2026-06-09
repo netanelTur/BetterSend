@@ -43,6 +43,14 @@ inline constexpr uint16_t kBleCompanyId       = 0xFFFF;
 inline constexpr uint8_t  kBleMagicBytes[]    = {0xBE, 0x77, 0xEC, 0xD0};
 inline constexpr int      kBleMaxNameLen      = 20;
 
+// Connect-request advert variant. Identical to kBleMagicBytes except the last
+// byte (D1 vs D0), so it costs zero extra advertisement bytes. The host
+// (Windows) republishes its ManufacturerData with THIS magic while its user is
+// waiting for a tapped peer to connect; the client (Mac) sees it in the advert
+// it already parses and initiates the Wi-Fi join from its side (only the Mac
+// can join the hotspot). Reverted to kBleMagicBytes once the peer is reachable.
+inline constexpr uint8_t  kBleConnectMagicBytes[] = {0xBE, 0x77, 0xEC, 0xD1};
+
 // ── Protocol ──────────────────────────────────────────────────────────────────
 inline constexpr uint32_t kHeaderLengthBytes  = 4;     // size prefix (big-endian)
 inline constexpr uint32_t kMaxHeaderSizeBytes = 4096;  // guard against malformed headers

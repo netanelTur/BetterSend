@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
 #include <compare>
+#include <tuple>
 
 namespace BetterSend {
 
@@ -17,8 +18,19 @@ struct Device {
 	std::string ip;    // IPv4 address
 	int         port;  // TCP port the device is listening on
 
-	// Equality + ordering by IP:port (useful for deduplication in sets)
-	auto operator<=>(const Device&) const = default;
+	// Set when this peer's advert carries the "connect requested" marker —
+	// the host (Windows) is asking us (Mac) to join its hotspot because its
+	// user tapped us. Not part of identity; excluded from comparison.
+	bool        connectRequested{false};
+
+	// Equality + ordering by name/IP:port (useful for deduplication in sets).
+	// connectRequested is a transient signal, not identity, so it's excluded.
+	auto operator<=>(const Device& o) const {
+		return std::tie(name, ip, port) <=> std::tie(o.name, o.ip, o.port);
+	}
+	bool operator==(const Device& o) const {
+		return name == o.name && ip == o.ip && port == o.port;
+	}
 };
 
 } // namespace BetterSend
