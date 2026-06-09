@@ -240,13 +240,43 @@
   }
 
   /* ── Annotated code table ── */
-  .annotated {
+  .annotated,
+  .code-rows {
     border: 1px solid #e2e5ea;
     border-radius: 10px;
     overflow: hidden;
     box-shadow: 0 1px 4px rgba(0,0,0,0.06);
     font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
     font-size: 12.5px;
+  }
+
+  /* Sections that use a bare <h2> + .path instead of .file-header */
+  .file-section > h2 {
+    font-size: 19px;
+    font-weight: 700;
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    color: #1a1d23;
+    letter-spacing: -0.3px;
+    margin-bottom: 6px;
+  }
+
+  .path {
+    color: #6b7280;
+    font-size: 12.5px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    margin-bottom: 14px;
+    line-height: 1.6;
+    direction: rtl;
+    text-align: right;
+  }
+
+  .path code {
+    background: #f0f2f5;
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-family: monospace;
+    font-size: 11.5px;
+    color: #c0392b;
   }
 
   .code-row {
@@ -295,19 +325,24 @@
     text-align: left;
   }
 
+  /* New-style sections (.code-rows) get the same cream code background
+     as the highlighted rows in the rest of the document */
+  .code-rows .code-cell { background: #fffef5; }
+  .code-rows .code-row:hover .code-cell { background: #fffbe6; }
+
   .anno-cell {
-    padding: 8px 16px;
+    padding: 14px 20px;
     background: #ffffff;
-    color: #4b5563;
+    color: #2f3640;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    font-size: 12.5px;
-    line-height: 1.6;
+    font-size: 13.5px;
+    line-height: 1.85;
     white-space: normal;
-    display: flex;
-    align-items: center;
+    display: block;
     direction: rtl;
     text-align: right;
     border-left: 3px solid transparent;
+    overflow-wrap: break-word;
   }
 
   .anno-cell.key   { border-left-color: #6366f1; background: #fafafe; }
@@ -315,14 +350,17 @@
   .anno-cell.warn  { border-left-color: #f59e0b; background: #fffbf0; }
   .anno-cell.empty { opacity: 0; }
 
-  .anno-cell strong { color: #1a1d23; font-weight: 600; }
+  .anno-cell strong { color: #111418; font-weight: 600; }
   .anno-cell code {
-    background: #f0f2f5;
-    padding: 1px 4px;
-    border-radius: 3px;
-    font-family: monospace;
-    font-size: 11.5px;
-    color: #c0392b;
+    background: #eef1f5;
+    padding: 1.5px 5px;
+    border-radius: 4px;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 12px;
+    color: #b23a2e;
+    direction: ltr;
+    unicode-bidi: embed;
+    overflow-wrap: anywhere;
   }
 
   /* ── Syntax colors (light mode — VS Code Light+) ── */
@@ -372,8 +410,8 @@
     <a href="#ble-background">🛰️ רקע BLE</a>
     <a href="#blediscovery">BleDiscovery_Windows.cpp <span class="tag tag-cpp">C++</span></a>
     <a href="#blediscovery-mac">BleDiscovery_Mac.mm <span class="tag tag-cpp">Obj-C++</span></a>
-    <a href="#tcptransport">TcpTransport.cpp <span class="tag tag-cpp">C++</span></a>
-    <a href="#transferprotocol">TransferProtocol.cpp <span class="tag tag-cpp">C++</span></a>
+    <a href="#tcp-impl">TcpTransport.cpp <span class="tag tag-cpp">C++</span></a>
+    <a href="#protocol-impl">TransferProtocol.cpp <span class="tag tag-cpp">C++</span></a>
   </div>
 
   <div class="section">
@@ -400,6 +438,8 @@
     <a href="#ffibridge">ffi_bridge.dart <span class="tag tag-dart">Dart</span></a>
     <a href="#splash">splash_screen.dart <span class="tag tag-dart">Dart</span></a>
     <a href="#homescreen">home_screen.dart <span class="tag tag-dart">Dart</span></a>
+    <a href="#transfer-screen">transfer_screen.dart <span class="tag tag-dart">Dart</span></a>
+    <a href="#device-list">device_list_screen.dart <span class="tag tag-dart">Dart</span></a>
   </div>
 
   <div class="section">
@@ -411,6 +451,13 @@
     <a href="#flutter-runtime">Flutter UI — Dialog + Prune</a>
     <a href="#entitlements-runtime">Entitlements — File Picker</a>
     <a href="#tap-connect">Tap-to-Connect (2026-06-08)</a>
+    <a href="#ble-visibility">BLE visibility — placeholder name</a>
+  </div>
+
+  <div class="section">
+    <div class="section-label">Build & בדיקות</div>
+    <a href="#build">CMakeLists.txt <span class="tag tag-cpp">CMake</span></a>
+    <a href="#tests">Unit tests <span class="tag tag-cpp">GTest</span></a>
   </div>
 </nav>
 
@@ -434,7 +481,9 @@
     <span style="background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;">Future — Cloud Room</span>
   </div>
   <div class="meta">
-    <span>עדכון אחרון: 2026-06-08 (Tap-to-Connect — המק מתחבר ל-Wi-Fi רק בלחיצת משתמש; bettersend_connect_peer + ConnectStatusCallback + connectToPeer + ספינר; הוסר auto-join. Windows רואה את המק דרך שם placeholder כשאין LocalName; duty-cycle בוטל)</span>
+    <span>עדכון אחרון: 2026-06-09 (תוקן באג פריסה בעמודת ההסברים; הושלם תיעוד לקבצים שחסרו — Device.h, Logger.h, IClipboard.h, CMakeLists.txt, בדיקות GTest, transfer_screen.dart, device_list_screen.dart; תוקנו קישורי TOC שבורים)</span>
+    <span>עדכון קודם: 2026-06-09 (תיקון עיצוב — sections מ-IConnectionBroker.h ואילך: עיצוב כרטיס, צביעת תחביר, רקע קוד קרם; שופרה קריאות עמודת ההסברים)</span>
+    <span>עדכון קודם: 2026-06-08 (Tap-to-Connect — המק מתחבר ל-Wi-Fi רק בלחיצת משתמש; bettersend_connect_peer + ConnectStatusCallback + connectToPeer + ספינר; הוסר auto-join. Windows רואה את המק דרך שם placeholder כשאין LocalName; duty-cycle בוטל)</span>
     <span>שלב פעיל: Phase 1 — צינור: BLE discovery (רק חושף peers) → המשתמש לוחץ על מכשיר → bettersend_connect_peer מריץ worker מנותק: GATT handshake → joinNetwork (CoreWLAN open scan + associate) → לולאת Hello → TCP. Control plane של request/accept/decline פעיל.</span>
   </div>
 </div>
@@ -1036,9 +1085,9 @@
     </div>
     <div class="code-row">
       <div class="code-cell">┌──────────────────────────────────────────┐
-│  Primary advertisement  (31 בייטים max)  │  ←─ נשלח כל ~100-200ms
+│  <span class="ty">Primary</span> <span class="fn">advertisement</span>  (<span class="nm">31</span> בייטים max)  │  ←─ נשלח כל ~<span class="nm">100</span>-200ms
 ├──────────────────────────────────────────┤
-│  Scan response   (31 בייטים max, optional)│  ←─ נשלח רק כש-scanner ביקש
+│  <span class="ty">Scan</span> <span class="fn">response</span>   (<span class="nm">31</span> בייטים max, optional)│  ←─ נשלח רק כש-scanner ביקש
 └──────────────────────────────────────────┘</div>
       <div class="anno-cell key">
         <div>
@@ -1049,15 +1098,15 @@
       </div>
     </div>
     <div class="code-row">
-      <div class="code-cell">Advertisement data := concat of AD structures, כל אחד:
+      <div class="code-cell"><span class="ty">Advertisement</span> data := concat of <span class="ty">AD</span> structures, כל אחד:
 
-  [1B length][1B AD type][data bytes]
+  [1<span class="ty">B</span> length][1<span class="ty">B</span> <span class="ty">AD</span> type][data bytes]
 
-AD types שאנחנו משתמשים בהם:
-  0x01  Flags                       ← ה-OS מוסיף אוטומטית, סה"כ 3B
-  0x07  Complete 128-bit UUIDs      ← 1+1+16 = 18B לכל UUID
-  0x09  Complete Local Name (N)     ← 1+1+N    = N+2B
-  0xFF  Manufacturer Data (N)       ← 1+1+2+N  = N+4B</div>
+<span class="ty">AD</span> types שאנחנו משתמשים בהם:
+  0x01  <span class="ty">Flags</span>                       ← ה-<span class="ty">OS</span> מוסיף אוטומטית, סה"כ 3<span class="ty">B</span>
+  0x07  <span class="ty">Complete</span> <span class="nm">128</span>-bit <span class="ty">UUIDs</span>      ← <span class="nm">1</span>+<span class="nm">1</span>+<span class="nm">16</span> = 18<span class="ty">B</span> לכל <span class="ty">UUID</span>
+  0x09  <span class="ty">Complete</span> <span class="ty">Local</span> <span class="ty">Name</span> (<span class="ty">N</span>)     ← <span class="nm">1</span>+<span class="nm">1</span>+<span class="ty">N</span>    = <span class="ty">N</span>+2<span class="ty">B</span>
+  0xFF  <span class="ty">Manufacturer</span> <span class="ty">Data</span> (<span class="ty">N</span>)       ← <span class="nm">1</span>+<span class="nm">1</span>+<span class="nm">2</span>+<span class="ty">N</span>  = <span class="ty">N</span>+4<span class="ty">B</span></div>
       <div class="anno-cell key">
         <div>
           כל AD section מתחיל ב-2 בייטים מטא (length + type), ואחריהם ה-payload. <strong>UUID של 128-bit לבד אוכל 18 בייטים</strong> — רוב התקציב. <strong>ManufacturerData עם CompanyID + magic + שם של 10 תווים</strong> אוכל 18 בייטים. <strong>שניהם ביחד עם Flags</strong> = 3+18+18 = 39 → <em>overflow</em>, ה-OS דוחה.
@@ -1067,15 +1116,15 @@ AD types שאנחנו משתמשים בהם:
       </div>
     </div>
     <div class="code-row">
-      <div class="code-cell">  Mac  (CoreBluetooth)                Windows  (WinRT)
+      <div class="code-cell">  <span class="ty">Mac</span>  (<span class="ty">CoreBluetooth</span>)                <span class="ty">Windows</span>  (<span class="ty">WinRT</span>)
   ───────────────────────             ─────────────────
-  CBPeripheralManager                 BluetoothLEAdvertisementPublisher
-  CBCentralManager                    BluetoothLEAdvertisementWatcher
+  <span class="ty">CBPeripheralManager</span>                 <span class="ty">BluetoothLEAdvertisementPublisher</span>
+  <span class="ty">CBCentralManager</span>                    <span class="ty">BluetoothLEAdvertisementWatcher</span>
 
-  startAdvertising:dict               publisher.Start()
-   ServiceUUIDsKey         ✓           ServiceUuids().Append()    ✓
-   LocalNameKey            ✓           LocalName()                ✓
-   ManufacturerDataKey     ✗  ← דחויה   ManufacturerData().Append() ✓
+  startAdvertising:dict               publisher.<span class="ty">Start</span>()
+   <span class="ty">ServiceUUIDsKey</span>         ✓           <span class="ty">ServiceUuids</span>().<span class="ty">Append</span>()    ✓
+   <span class="ty">LocalNameKey</span>            ✓           <span class="ty">LocalName</span>()                ✓
+   <span class="ty">ManufacturerDataKey</span>     ✗  ← דחויה   <span class="ty">ManufacturerData</span>().<span class="ty">Append</span>() ✓
                               בשקט!</div>
       <div class="anno-cell key">
         <div>
@@ -1839,15 +1888,15 @@ leading: <span class="ty">Icon</span>(<span class="fn">_iconFor</span>(device.ki
   <div class="path">cpp_core/include/IConnectionBroker.h — Strategy interface ל-bring-up של רשת IP אחרי גילוי BLE</div>
   <div class="code-rows">
     <div class="code-row">
-      <div class="code-cell">struct Credentials {
-  std::string ssid;
-  std::string psk;
-  std::string hostIp;
+      <div class="code-cell"><span class="kw">struct</span> <span class="ty">Credentials</span> {
+  <span class="ty">std</span>::<span class="ty">string</span> ssid;
+  <span class="ty">std</span>::<span class="ty">string</span> psk;
+  <span class="ty">std</span>::<span class="ty">string</span> hostIp;
 };
 
-virtual Credentials  startHost()    = 0;
-virtual bool         joinNetwork(ssid, psk) = 0;
-virtual void         stop()         = 0;</div>
+<span class="kw">virtual</span> <span class="ty">Credentials</span>  <span class="fn">startHost</span>()    = <span class="nm">0</span>;
+<span class="kw">virtual</span> <span class="kw">bool</span>         <span class="fn">joinNetwork</span>(ssid, psk) = <span class="nm">0</span>;
+<span class="kw">virtual</span> <span class="kw">void</span>         <span class="fn">stop</span>()         = <span class="nm">0</span>;</div>
       <div class="anno-cell info">
         <strong>שני תפקידים — host וclient.</strong> כל פלטפורמה ב-Phase 1 ממשת את התפקיד שלה: Windows = host (WindowsHotspotBroker), Mac = client (MacWifiClientBroker). תפקיד לא נתמך זורק <code>std::runtime_error</code> — fail loudly. <code>Credentials</code> חוצה ל-GATT דרך <a href="#ipeerhandshake">IPeerHandshake</a>.
       </div>
@@ -1860,9 +1909,9 @@ virtual void         stop()         = 0;</div>
   <div class="path">cpp_core/include/IPeerHandshake.h — חילופי credentials מעל BLE GATT</div>
   <div class="code-rows">
     <div class="code-row">
-      <div class="code-cell">virtual void        publishPayload(const std::string&amp;) = 0;
-virtual std::string fetchPayload(peerId, timeoutSeconds) = 0;
-virtual void        stop() = 0;</div>
+      <div class="code-cell"><span class="kw">virtual</span> <span class="kw">void</span>        <span class="fn">publishPayload</span>(<span class="kw">const</span> <span class="ty">std</span>::<span class="ty">string</span>&amp;) = <span class="nm">0</span>;
+<span class="kw">virtual</span> <span class="ty">std</span>::<span class="ty">string</span> <span class="fn">fetchPayload</span>(peerId, timeoutSeconds) = <span class="nm">0</span>;
+<span class="kw">virtual</span> <span class="kw">void</span>        <span class="fn">stop</span>() = <span class="nm">0</span>;</div>
       <div class="anno-cell info">
         <strong>Strategy לבחירת תפקיד GATT.</strong> Windows publishes JSON; Mac fetches JSON. אחרי discovery ולפני שה-broker מרים hotspot, ה-host כותב את ה-credentials לcharacteristic; ה-client קורא אותו מעל GATT ומעביר ל-broker.joinNetwork. UUIDים ב-<a href="#constants">Constants.h</a> (<code>kBleServiceUuid</code> + <code>kBleHandshakeCharUuid</code>).
       </div>
@@ -1875,16 +1924,16 @@ virtual void        stop() = 0;</div>
   <div class="path">cpp_core/src/WindowsHotspotBroker.cpp — מימוש IConnectionBroker ב-WinRT (Windows בלבד)</div>
   <div class="code-rows">
     <div class="code-row">
-      <div class="code-cell">auto profile = NetworkInformation::GetInternetConnectionProfile();
-manager_ = NetworkOperatorTetheringManager::CreateFromConnectionProfile(profile);
-auto config = manager_.GetCurrentAccessPointConfiguration();
+      <div class="code-cell"><span class="kw">auto</span> profile = <span class="ty">NetworkInformation</span>::<span class="ty">GetInternetConnectionProfile</span>();
+manager_ = <span class="ty">NetworkOperatorTetheringManager</span>::<span class="ty">CreateFromConnectionProfile</span>(profile);
+<span class="kw">auto</span> config = manager_.<span class="ty">GetCurrentAccessPointConfiguration</span>();
 
-auto result = manager_.StartTetheringAsync().get();
+<span class="kw">auto</span> result = manager_.<span class="ty">StartTetheringAsync</span>().<span class="kw">get</span>();
 
-Credentials c{};
-c.ssid   = config.Ssid();
-c.psk    = config.Passphrase();
-c.hostIp = "192.168.137.1";      // Windows ICS gateway קבוע</div>
+<span class="ty">Credentials</span> c{};
+c.ssid   = config.<span class="ty">Ssid</span>();
+c.psk    = config.<span class="ty">Passphrase</span>();
+c.hostIp = <span class="st">"192.168.137.1"</span>;      <span class="cm">// Windows ICS gateway קבוע</span></div>
       <div class="anno-cell info">
         <strong>WinRT API להפעלת Mobile Hotspot ב-Windows.</strong> דורש <code>InternetConnectionProfile</code> פעיל — מגבלת מערכת. ה-SSID + Passphrase נקראים מההגדרות הקיימות של Windows (לא משנים כדי לא לדרוש הרשאת Admin). ה-host IP <code>192.168.137.1</code> תמיד מוקצה ע"י Internet Connection Sharing למתאם המארח. <code>joinNetwork()</code> זורק כי תפקיד client לא נתמך כאן.
       </div>
@@ -1897,10 +1946,10 @@ c.hostIp = "192.168.137.1";      // Windows ICS gateway קבוע</div>
   <div class="path">cpp_core/src/MacWifiClientBroker.mm — מימוש IConnectionBroker מעל CoreWLAN (macOS בלבד)</div>
   <div class="code-rows">
     <div class="code-row">
-      <div class="code-cell">CWInterface* iface = [[CWWiFiClient sharedWiFiClient] interface];
-if (!iface.powerOn) [iface setPower:YES error:&amp;e];
+      <div class="code-cell"><span class="ty">CWInterface</span>* iface = [[<span class="ty">CWWiFiClient</span> sharedWiFiClient] interface];
+<span class="kw">if</span> (!iface.powerOn) [iface setPower:<span class="ty">YES</span> error:&amp;e];
 
-CWNetwork* net = findNetwork(iface, ssid);   // עד 3 sweeps
+<span class="ty">CWNetwork</span>* net = <span class="fn">findNetwork</span>(iface, ssid);   <span class="cm">// עד 3 sweeps</span>
 [iface associateToNetwork:net password:psk error:&amp;e];</div>
       <div class="anno-cell info">
         <strong>CoreWLAN <code>associateToNetwork:password:error:</code></strong> מצטרף ל-SSID של Windows. <code>findNetwork</code> סורק עד 3 פעמים — לפעמים ה-radio מפספס את ה-beacon הראשון אחרי שה-Windows רק עכשיו הרים את ה-hotspot. בפעם הראשונה macOS עלולה להציג prompt; אחר כך שקט. <code>startHost()</code> זורק כי macOS לא חושף API להרמת hotspot מתכנותית — Phase 1 tie-break: Windows תמיד host.
@@ -1914,23 +1963,23 @@ CWNetwork* net = findNetwork(iface, ssid);   // עד 3 sweeps
   <div class="path">cpp_core/src/BleHandshake_Windows.cpp — שרת GATT (host) ב-WinRT</div>
   <div class="code-rows">
     <div class="code-row">
-      <div class="code-cell">auto svcResult = GattServiceProvider::CreateAsync(serviceGuid).get();
-provider_       = svcResult.ServiceProvider();
+      <div class="code-cell"><span class="kw">auto</span> svcResult = <span class="ty">GattServiceProvider</span>::<span class="ty">CreateAsync</span>(serviceGuid).<span class="kw">get</span>();
+provider_       = svcResult.<span class="ty">ServiceProvider</span>();
 
-GattLocalCharacteristicParameters charParams;
-charParams.CharacteristicProperties(GattCharacteristicProperties::Read);
-auto charResult = provider_.Service()
-    .CreateCharacteristicAsync(charGuid, charParams).get();
-characteristic_ = charResult.Characteristic();
+<span class="ty">GattLocalCharacteristicParameters</span> charParams;
+charParams.<span class="ty">CharacteristicProperties</span>(<span class="ty">GattCharacteristicProperties</span>::<span class="ty">Read</span>);
+<span class="kw">auto</span> charResult = provider_.<span class="ty">Service</span>()
+    .<span class="ty">CreateCharacteristicAsync</span>(charGuid, charParams).<span class="kw">get</span>();
+characteristic_ = charResult.<span class="ty">Characteristic</span>();
 
-characteristic_.ReadRequested([this](auto, auto args) {
-  auto req = args.GetRequestAsync().get();
-  DataWriter w;
-  w.WriteBytes(snapshot_of_payload_);
-  req.RespondWithValue(w.DetachBuffer());
+characteristic_.<span class="ty">ReadRequested</span>([<span class="kw">this</span>](<span class="kw">auto</span>, <span class="kw">auto</span> args) {
+  <span class="kw">auto</span> req = args.<span class="ty">GetRequestAsync</span>().<span class="kw">get</span>();
+  <span class="ty">DataWriter</span> w;
+  w.<span class="ty">WriteBytes</span>(snapshot_of_payload_);
+  req.<span class="ty">RespondWithValue</span>(w.<span class="ty">DetachBuffer</span>());
 });
 
-provider_.StartAdvertising({IsConnectable=true, IsDiscoverable=true});</div>
+provider_.<span class="ty">StartAdvertising</span>({<span class="ty">IsConnectable</span>=<span class="kw">true</span>, <span class="ty">IsDiscoverable</span>=<span class="kw">true</span>});</div>
       <div class="anno-cell info">
         <strong>שרת GATT מקומי על <code>kBleServiceUuid</code>.</strong> characteristic יחיד (Read-only) שמחזיר את ה-JSON האחרון שנקבע ב-<code>publishPayload()</code>. <code>publishPayload</code> idempotent: כתיבה חוזרת רק מחליפה את ה-snapshot ב-mutex; ה-server רץ פעם אחת בלבד. <code>StartAdvertising</code> מודיע שהמכשיר מקבל חיבורים — חיוני כדי שמק יוכל לבצע <code>connectPeripheral</code>.
       </div>
@@ -1943,15 +1992,15 @@ provider_.StartAdvertising({IsConnectable=true, IsDiscoverable=true});</div>
   <div class="path">cpp_core/src/BleHandshake_Mac.mm — קליינט GATT ב-CoreBluetooth (macOS בלבד)</div>
   <div class="code-rows">
     <div class="code-row">
-      <div class="code-cell">// fetchPayload(peerId="ble:&lt;UUIDString&gt;", timeout):
-//   1. CBCentralManager → scan filtered by serviceUuid
-//      (scanForPeripheralsWithServices:@[serviceUuid])
-//   2. didDiscoverPeripheral (first match) → stopScan + connectPeripheral
-//   3. didConnectPeripheral → discoverServices:[serviceUuid]
-//   4. didDiscoverServices → discoverCharacteristics:[charUuid]
-//   5. didDiscoverCharacteristicsForService → readValueForCharacteristic
-//   6. didUpdateValueForCharacteristic → NSString(UTF8) → signal semaphore
-dispatch_semaphore_wait(self.done, dispatch_time(NOW, timeoutSeconds * NSEC_PER_SEC));
+      <div class="code-cell"><span class="cm">// fetchPayload(peerId="ble:&lt;UUIDString&gt;", timeout):</span>
+<span class="cm">//   1. CBCentralManager → scan filtered by serviceUuid</span>
+<span class="cm">//      (scanForPeripheralsWithServices:@[serviceUuid])</span>
+<span class="cm">//   2. didDiscoverPeripheral (first match) → stopScan + connectPeripheral</span>
+<span class="cm">//   3. didConnectPeripheral → discoverServices:[serviceUuid]</span>
+<span class="cm">//   4. didDiscoverServices → discoverCharacteristics:[charUuid]</span>
+<span class="cm">//   5. didDiscoverCharacteristicsForService → readValueForCharacteristic</span>
+<span class="cm">//   6. didUpdateValueForCharacteristic → NSString(UTF8) → signal semaphore</span>
+<span class="fn">dispatch_semaphore_wait</span>(self.done, <span class="fn">dispatch_time</span>(<span class="ty">NOW</span>, timeoutSeconds * <span class="ty">NSEC_PER_SEC</span>));
 </div>
       <div class="anno-cell info">
         <strong>סדר הקריאות של CoreBluetooth הוא callback chain.</strong> כל שלב יורש מהקודם דרך delegate. <strong>פילטר scan חיוני:</strong> Windows מריץ שני BLE publishers במקביל — <code>BluetoothLEAdvertisementPublisher</code> (ManufacturerData בלבד, <em>לא</em> connectable) ו-<code>GattServiceProvider</code> (משדר את ה-service UUID, <em>כן</em> connectable). שניהם מקבלים <code>CBPeripheral.identifier</code> שונה. כששתי הצרכניות מופיעות, סינון לפי <code>peripheral.identifier</code> בלבד יכול להוביל ל-connect על הצינור הלא-connectable → <code>connectPeripheral:</code> תקוע לנצח (אין connect timeout ב-CoreBluetooth). הפתרון: scan עם <code>@[serviceUuid]</code> — CoreBluetooth מסנן אוטומטית רק את ה-GATT publisher. <code>publishPayload()</code> זורק כי macOS Phase 1 הוא תמיד client.
@@ -1965,20 +2014,20 @@ dispatch_semaphore_wait(self.done, dispatch_time(NOW, timeoutSeconds * NSEC_PER_
   <div class="path">cpp_core/{include,src}/TransferProtocol.{h,cpp} — encode/decode עם nlohmann/json + length-prefix BE</div>
   <div class="code-rows">
     <div class="code-row">
-      <div class="code-cell">// encodeHeader
+      <div class="code-cell"><span class="cm">// encodeHeader</span>
 nlohmann::json j;
-j["type"]   = "file" | "clipboard";
-j["name"]   = header.name;
-j["size"]   = header.size;
-j["sender"] = header.senderName;
-std::string body = j.dump();
-out[0..3] = BE32(body.size());
-out[4..]  = body.bytes;
+j[<span class="st">"type"</span>]   = <span class="st">"file"</span> | <span class="st">"clipboard"</span>;
+j[<span class="st">"name"</span>]   = header.name;
+j[<span class="st">"size"</span>]   = header.size;
+j[<span class="st">"sender"</span>] = header.senderName;
+<span class="ty">std</span>::<span class="ty">string</span> body = j.<span class="fn">dump</span>();
+out[<span class="nm">0</span>..<span class="nm">3</span>] = <span class="ty">BE32</span>(body.<span class="fn">size</span>());
+out[<span class="nm">4</span>..]  = body.bytes;
 
-// decodeHeader
-jsonLen = readBE32(data[0..3]);
-if (jsonLen == 0 || jsonLen &gt; kMaxHeaderSizeBytes) throw;
-nlohmann::json::parse(data[4..4+jsonLen]);</div>
+<span class="cm">// decodeHeader</span>
+jsonLen = <span class="fn">readBE32</span>(data[<span class="nm">0</span>..<span class="nm">3</span>]);
+<span class="kw">if</span> (jsonLen == <span class="nm">0</span> || jsonLen &gt; kMaxHeaderSizeBytes) throw;
+nlohmann::json::<span class="fn">parse</span>(data[<span class="nm">4</span>..<span class="nm">4</span>+jsonLen]);</div>
       <div class="anno-cell info">
         <strong>פורמט wire יחיד לכל סוגי ההעברה.</strong> 4 bytes big-endian → JSON header → payload נפרד. Validation: too-short / out-of-range length / invalid JSON זורקים <code>std::runtime_error</code>. Unicode (עברית, emoji) שורד את ה-round-trip — מוכח ב-<code>test_protocol.cpp</code> (5 tests, ירוקים).
       </div>
@@ -2015,33 +2064,33 @@ nlohmann::json::parse(data[4..4+jsonLen]);</div>
   <div class="path">cpp_core/src/bettersend_api.cpp — Facade שמחבר discovery + handshake + broker + transport</div>
   <div class="code-rows">
     <div class="code-row">
-      <div class="code-cell">// on BLE peer found:
-#if _WIN32
-  ensureHostStarted(ctx, port):
-    broker->startHost() → {ssid, psk, hostIp}
-    handshake->publishPayload(JSON)
+      <div class="code-cell"><span class="cm">// on BLE peer found:</span>
+#<span class="kw">if</span> _WIN32
+  <span class="fn">ensureHostStarted</span>(ctx, port):
+    broker-><span class="fn">startHost</span>() → {ssid, psk, hostIp}
+    handshake-><span class="fn">publishPayload</span>(<span class="ty">JSON</span>)
 #elif __APPLE__
-  thread { clientHandshakeAndJoin(ctx, peer):
-    payload = handshake->fetchPayload(peerId, 20s)
+  thread { <span class="fn">clientHandshakeAndJoin</span>(ctx, peer):
+    payload = handshake-><span class="fn">fetchPayload</span>(peerId, 20s)
     parse {ssid, psk, hostIp, port}
-    handshake->stop()                  // free BLE central; advertise + discovery stay
-    peers[peer.name].ip = hostIp       // half-paired: creds known, awaiting Hello
-    BS_LOG_WARN("Manual join: SSID '{ssid}' password '{psk}'")
-    for attempt in 1..60:              // ~2 min total
-      sleep(2s)
-      if transport->send(hostIp, port, Hello):
-        peers[peer.name].helloSent = true
-        return
+    handshake-><span class="fn">stop</span>()                  <span class="cm">// free BLE central; advertise + discovery stay</span>
+    peers[peer.name].ip = hostIp       <span class="cm">// half-paired: creds known, awaiting Hello</span>
+    <span class="ty">BS_LOG_WARN</span>(<span class="st">"Manual join: SSID '{ssid}' password '{psk}'"</span>)
+    <span class="kw">for</span> attempt in <span class="nm">1</span>..<span class="nm">60</span>:              <span class="cm">// ~2 min total</span>
+      <span class="fn">sleep</span>(2s)
+      <span class="kw">if</span> transport-><span class="fn">send</span>(hostIp, port, <span class="ty">Hello</span>):
+        peers[peer.name].helloSent = <span class="kw">true</span>
+        <span class="kw">return</span>
   }
 #endif
 
-// on TCP receive:
-//   Hello sentinel → record peer IP from socket, suppress callback
-//   File/Clipboard → forward to Dart via TransferReceivedCallback
+<span class="cm">// on TCP receive:</span>
+<span class="cm">//   Hello sentinel → record peer IP from socket, suppress callback</span>
+<span class="cm">//   File/Clipboard → forward to Dart via TransferReceivedCallback</span>
 
-bettersend_send_file(handle, peerName, filePath):
-  ip = peers[peerName].ip   // learned via GATT (mac) או Hello (win)
-  transport->send(ip, kDefaultPort, FileTransferable{filePath})</div>
+<span class="fn">bettersend_send_file</span>(handle, peerName, filePath):
+  ip = peers[peerName].ip   <span class="cm">// learned via GATT (mac) או Hello (win)</span>
+  transport-><span class="fn">send</span>(ip, kDefaultPort, <span class="ty">FileTransferable</span>{filePath})</div>
       <div class="anno-cell info">
         <strong>זה הצינור — Path B (dogfood).</strong> Phase 1 tie-break ב-<code>#ifdef</code>: Windows = host always, macOS = client always. אחרי GATT handshake, המק לא מנסה <code>joinNetwork</code> יותר (CoreWLAN <code>scanForNetworksWithName:</code> תקוע על <code>"Resource busy"</code> בסיליקון של Apple באופן עקבי). במקום זה הוא: (1) שומר את ה-hotspot IP על <code>peersByName</code> כדי שה-UI יוכל לסמן peer כ"half-paired", (2) מציג בלוג את ה-SSID + סיסמה למשתמש להתחברות ידנית, (3) רץ בלולאה של 60 ניסיונות (פעם בשתי שניות) של שליחת Hello. ברגע ש-<code>transport-&gt;send</code> מצליח, Windows לומד את ה-IP של מק דרך <code>socket.remote_endpoint()</code> וצינור ההעברה פתוח. <code>ITransport::send</code> עכשיו מחזיר <code>bool</code> כדי לסמן הצלחה אמיתית של ה-connect+write.
         <br/><br/>
@@ -2056,17 +2105,17 @@ bettersend_send_file(handle, peerName, filePath):
   <div class="path">flutter_app/lib/ffi_bridge.dart — startServer + sendFile + sendClipboard עכשיו אמיתיים</div>
   <div class="code-rows">
     <div class="code-row">
-      <div class="code-cell">typedef NativeTransferRecvCb = Void Function(
-  Int32, Pointer&lt;Utf8&gt;, Pointer&lt;Utf8&gt;, Pointer&lt;Utf8&gt;, Int64);
+      <div class="code-cell"><span class="kw">typedef</span> <span class="ty">NativeTransferRecvCb</span> = <span class="ty">Void</span> <span class="ty">Function</span>(
+  <span class="ty">Int32</span>, <span class="ty">Pointer</span>&lt;<span class="ty">Utf8</span>&gt;, <span class="ty">Pointer</span>&lt;<span class="ty">Utf8</span>&gt;, <span class="ty">Pointer</span>&lt;<span class="ty">Utf8</span>&gt;, <span class="ty">Int64</span>);
 
-startServer(port, onReceive):
-  _transferCb = NativeCallable&lt;NativeTransferRecvCb&gt;.listener((..) {
-    decode strings, free with bettersend_free_cstr, call onReceive
+<span class="fn">startServer</span>(port, onReceive):
+  _transferCb = <span class="ty">NativeCallable</span>&lt;<span class="ty">NativeTransferRecvCb</span>&gt;.<span class="fn">listener</span>((..) {
+    decode strings, free <span class="kw">with</span> bettersend_free_cstr, call onReceive
   });
-  _startServerN(_handle, port, _transferCb.nativeFunction);
+  <span class="fn">_startServerN</span>(_handle, port, _transferCb.nativeFunction);
 
-sendFile(device, path)   → _sendFile(_handle, device.name, path)
-sendClipboard(device, t) → _sendClipboard(_handle, device.name, t)</div>
+<span class="fn">sendFile</span>(device, path)   → <span class="fn">_sendFile</span>(_handle, device.name, path)
+<span class="fn">sendClipboard</span>(device, t) → <span class="fn">_sendClipboard</span>(_handle, device.name, t)</div>
       <div class="anno-cell info">
         <strong>C API חתום על peer לפי שם, לא IP.</strong> ה-Dart side מעביר את <code>device.name</code> לC, וה-C מחפש ב-registry הפנימי שלו את ה-IP של ה-hotspot. listener mode של NativeCallable שולח את ה-callback ל-Dart isolate — בטוח מ-background threads. צריך לזכור <code>_freeCstr</code> על כל שלושת ה-pointers שהC heap-allocated.
       </div>
@@ -2080,14 +2129,14 @@ sendClipboard(device, t) → _sendClipboard(_handle, device.name, t)</div>
   <div class="code-rows">
     <div class="code-row">
       <div class="code-cell">initState:
-  bridge.startServer(9000, onReceive: snack + add to _received)
-  bridge.startAdvertising(9000)
-  bridge.startDiscovery(onFound: add to _devices)
+  bridge.<span class="fn">startServer</span>(<span class="nm">9000</span>, onReceive: snack + add to _received)
+  bridge.<span class="fn">startAdvertising</span>(<span class="nm">9000</span>)
+  bridge.<span class="fn">startDiscovery</span>(onFound: add to _devices)
 
-_pickAndSend(device):
-  result = FilePicker.platform.pickFiles()
-  bridge.sendFile(device, result.files.single.path)
-  → push TransferScreen(progress indicator)</div>
+<span class="fn">_pickAndSend</span>(device):
+  result = <span class="ty">FilePicker</span>.platform.<span class="fn">pickFiles</span>()
+  bridge.<span class="fn">sendFile</span>(device, result.files.single.path)
+  → push <span class="ty">TransferScreen</span>(progress indicator)</div>
       <div class="anno-cell info">
         <strong>סדר הקריאות חשוב.</strong> ה-TCP server חייב להאזין לפני שה-Mac שולח Hello אל Windows — אחרת ה-host לא ילמד את ה-IP של מק. <code>file_picker</code> נוסף ל-pubspec; הוא נטיב לכל פלטפורמה. הרשימה <code>_received</code> בתחתית המסך מציגה כל קובץ שנכנס (כולל הנתיב המקומי שאליו נשמר), וגם SnackBar קצר עם שם השולח.
       </div>
@@ -2102,19 +2151,19 @@ _pickAndSend(device):
   <div class="path">cpp_core/src/BleDiscovery_{Mac.mm,Windows.cpp} — מניעת הצפת UI במכשירים זהים תחת שמות שונים</div>
   <div class="code-rows">
     <div class="code-row">
-      <div class="code-cell">struct ThrottleEntry {
+      <div class="code-cell"><span class="kw">struct</span> <span class="ty">ThrottleEntry</span> {
   steady_clock::time_point lastEmit;
-  std::string              canonical;   // first-seen casing wins
+  <span class="ty">std</span>::<span class="ty">string</span>              canonical;   <span class="cm">// first-seen casing wins</span>
 };
-std::unordered_map&lt;std::string /*lowercase*/, ThrottleEntry&gt; throttle_;
+<span class="ty">std</span>::unordered_map&lt;<span class="ty">std</span>::<span class="ty">string</span> /*lowercase*/, <span class="ty">ThrottleEntry</span>&gt; throttle_;
 
-// onPeerDiscovered / surfaceIfNew:
-const std::string key = toLowerAscii(peerName);
-auto&amp; entry = throttle_[key];
-if (entry.canonical.empty()) entry.canonical = peerName;
-if (now - entry.lastEmit &lt; kPeerHeartbeatSec) return;
+<span class="cm">// onPeerDiscovered / surfaceIfNew:</span>
+<span class="kw">const</span> <span class="ty">std</span>::<span class="ty">string</span> key = <span class="fn">toLowerAscii</span>(peerName);
+<span class="kw">auto</span>&amp; entry = throttle_[key];
+<span class="kw">if</span> (entry.canonical.<span class="fn">empty</span>()) entry.canonical = peerName;
+<span class="kw">if</span> (now - entry.lastEmit &lt; kPeerHeartbeatSec) <span class="kw">return</span>;
 entry.lastEmit = now;
-emit(Device{entry.canonical, "ble:" + id, kDefaultPort});</div>
+<span class="fn">emit</span>(<span class="ty">Device</span>{entry.canonical, <span class="st">"ble:"</span> + id, kDefaultPort});</div>
       <div class="anno-cell info">
         <strong>הבעיה:</strong> Windows מכריז במקביל שתי advertisements: BluetoothLEAdvertisementPublisher (manufacturerData עם UPPERCASE hostname) + GattServiceProvider.StartAdvertising (carrying ServiceUUID + system BT friendly name ב-mixed case). שתי הדרכים יוצרות שני entries לאותה מכונה. תיקון: throttle key בlowercase קולפס את שני ה-casings ל-bucket אחד; שם canonical (first-seen) הוא מה שמוצג. שני הצדדים (Mac + Windows) מיישמים אותו דפוס.
         <br/><br/>
@@ -2129,36 +2178,36 @@ emit(Device{entry.canonical, "ble:" + id, kDefaultPort});</div>
   <div class="path">cpp_core/include/IDiscovery.h + src/BleDiscovery_Mac.mm — שחרור radio ל-CoreWLAN בזמן join</div>
   <div class="code-rows">
     <div class="code-row">
-      <div class="code-cell">// IDiscovery.h — virtual default no-op (non-BLE backends ignore)
-virtual void pauseScan()      {}
-virtual void resumeScan()     {}
-virtual void pauseAdvertise() {}
-virtual void resumeAdvertise(){}
+      <div class="code-cell"><span class="cm">// IDiscovery.h — virtual default no-op (non-BLE backends ignore)</span>
+<span class="kw">virtual</span> <span class="kw">void</span> <span class="fn">pauseScan</span>()      {}
+<span class="kw">virtual</span> <span class="kw">void</span> <span class="fn">resumeScan</span>()     {}
+<span class="kw">virtual</span> <span class="kw">void</span> <span class="fn">pauseAdvertise</span>() {}
+<span class="kw">virtual</span> <span class="kw">void</span> <span class="fn">resumeAdvertise</span>(){}
 
-// BleDiscovery_Mac.mm — stop/start only, no manager nil-out
-void pauseScan() override {
-  if (delegate_.central.isScanning) [delegate_.central stopScan];
+<span class="cm">// BleDiscovery_Mac.mm — stop/start only, no manager nil-out</span>
+<span class="kw">void</span> <span class="fn">pauseScan</span>() <span class="kw">override</span> {
+  <span class="kw">if</span> (delegate_.central.isScanning) [delegate_.central stopScan];
 }
-void resumeScan() override {
-  if (delegate_.wantScan &amp;&amp; central.state == PoweredOn) kickScan();
+<span class="kw">void</span> <span class="fn">resumeScan</span>() <span class="kw">override</span> {
+  <span class="kw">if</span> (delegate_.wantScan &amp;&amp; central.state == <span class="ty">PoweredOn</span>) <span class="fn">kickScan</span>();
 }
-void pauseAdvertise() override {
-  if (delegate_.peripheral.isAdvertising) [delegate_.peripheral stopAdvertising];
+<span class="kw">void</span> <span class="fn">pauseAdvertise</span>() <span class="kw">override</span> {
+  <span class="kw">if</span> (delegate_.peripheral.isAdvertising) [delegate_.peripheral stopAdvertising];
 }
-void resumeAdvertise() override {
-  if (delegate_.wantAdvertise &amp;&amp; peripheral.state == PoweredOn) kickAdvertise();
+<span class="kw">void</span> <span class="fn">resumeAdvertise</span>() <span class="kw">override</span> {
+  <span class="kw">if</span> (delegate_.wantAdvertise &amp;&amp; peripheral.state == <span class="ty">PoweredOn</span>) <span class="fn">kickAdvertise</span>();
 }
 
-// bettersend_api.cpp clientHandshakeAndJoin (Path B):
-// — does NOT call pauseScan / pauseAdvertise / joinNetwork.
-// The Wi-Fi join is moved to the user (manual selection of the host
-// hotspot from the macOS Wi-Fi menu); the BLE roles keep running so the
-// peer stays visible across the join window, and the only thing keeping
-// the radio active is harmless to the *user-driven* Wi-Fi association.
-ctx.handshake-&gt;stop();        // free the GATT central, advertise + discovery stay up
-peers[peer.name].ip = hostIp; // cache hotspot IP, helloSent still false
+<span class="cm">// bettersend_api.cpp clientHandshakeAndJoin (Path B):</span>
+<span class="cm">// — does NOT call pauseScan / pauseAdvertise / joinNetwork.</span>
+<span class="cm">// The Wi-Fi join is moved to the user (manual selection of the host</span>
+<span class="cm">// hotspot from the macOS Wi-Fi menu); the BLE roles keep running so the</span>
+<span class="cm">// peer stays visible across the join window, and the only thing keeping</span>
+<span class="cm">// the radio active is harmless to the *user-driven* Wi-Fi association.</span>
+ctx.handshake-&gt;<span class="fn">stop</span>();        <span class="cm">// free the GATT central, advertise + discovery stay up</span>
+peers[peer.name].ip = hostIp; <span class="cm">// cache hotspot IP, helloSent still false</span>
 loop kHelloMaxAttempts times every kHelloRetrySec:
-  if transport-&gt;send(hostIp, port, Hello) → set helloSent=true, return</div>
+  <span class="kw">if</span> transport-&gt;<span class="fn">send</span>(hostIp, port, <span class="ty">Hello</span>) → <span class="kw">set</span> helloSent=<span class="kw">true</span>, <span class="kw">return</span></div>
       <div class="anno-cell info">
         <strong>היסטוריה:</strong> Mac BT ו-Wi-Fi חולקים אנטנה אחת בסיליקון של Apple. אנחנו ניסינו לסגור את ה-BLE לחלוטין (<code>stopScan</code> + <code>stopAdvertising</code> → <code>nil</code> ל-<code>CBCentralManager</code>/<code>CBPeripheralManager</code> + 4s sleep) כדי לתת ל-CoreWLAN ל-<code>scanForNetworksWithName:</code> בלי <code>"Resource busy"</code>. <em>זה לא עזר.</em> ה-root cause הוא לא יריבות BLE×Wi-Fi — זה <code>scanForNetworksWithName:</code> עצמו, API שאפל הפסיקה לתחזק עוד לפני macOS 11.
         <br/><br/>
@@ -2173,29 +2222,29 @@ loop kHelloMaxAttempts times every kHelloRetrySec:
   <div class="path">cpp_core/src/bettersend_api.cpp + include/Constants.h — מניעת לולאה של retry על כשלון join</div>
   <div class="code-rows">
     <div class="code-row">
-      <div class="code-cell">// Constants.h
-inline constexpr int kPeerHeartbeatSec = 2;   // throttle per peer
-inline constexpr int kPeerStaleSec     = 10;  // prune from UI
-inline constexpr int kPeerRetrySec     = 30;  // handshake retry cooldown
+      <div class="code-cell"><span class="cm">// Constants.h</span>
+<span class="kw">inline</span> <span class="kw">constexpr</span> <span class="kw">int</span> kPeerHeartbeatSec = <span class="nm">2</span>;   <span class="cm">// throttle per peer</span>
+<span class="kw">inline</span> <span class="kw">constexpr</span> <span class="kw">int</span> kPeerStaleSec     = <span class="nm">10</span>;  <span class="cm">// prune from UI</span>
+<span class="kw">inline</span> <span class="kw">constexpr</span> <span class="kw">int</span> kPeerRetrySec     = <span class="nm">30</span>;  <span class="cm">// handshake retry cooldown</span>
 
-// PeerInfo additions
-bool                                  helloSent{false};
-bool                                  attemptInFlight{false};
-std::chrono::steady_clock::time_point lastAttempt{};
+<span class="cm">// PeerInfo additions</span>
+<span class="kw">bool</span>                                  helloSent{<span class="kw">false</span>};
+<span class="kw">bool</span>                                  attemptInFlight{<span class="kw">false</span>};
+<span class="ty">std</span>::chrono::steady_clock::time_point lastAttempt{};
 
-// discovery callback (Mac):
-bool shouldSpawn = false;
+<span class="cm">// discovery callback (Mac):</span>
+<span class="kw">bool</span> shouldSpawn = <span class="kw">false</span>;
 { lock peersMu;
-  auto&amp; info = ctx-&gt;peersByName[d.name];
-  if (!info.helloSent &amp;&amp; !info.attemptInFlight &amp;&amp;
+  <span class="kw">auto</span>&amp; info = ctx-&gt;peersByName[d.name];
+  <span class="kw">if</span> (!info.helloSent &amp;&amp; !info.attemptInFlight &amp;&amp;
       (info.lastAttempt == {} ||
-       now - info.lastAttempt &gt;= seconds(kPeerRetrySec))) {
-    info.attemptInFlight = true;
+       now - info.lastAttempt &gt;= <span class="fn">seconds</span>(kPeerRetrySec))) {
+    info.attemptInFlight = <span class="kw">true</span>;
     info.lastAttempt = now;
-    shouldSpawn = true;
+    shouldSpawn = <span class="kw">true</span>;
   }
 }
-if (shouldSpawn) spawnThread(clientHandshakeAndJoin);</div>
+<span class="kw">if</span> (shouldSpawn) <span class="fn">spawnThread</span>(clientHandshakeAndJoin);</div>
       <div class="anno-cell info">
         <strong>הבעיה:</strong> BLE discovery מאשר peer כל 2s. בלי gating, כל אירוע פתח clientHandshakeAndJoin חדש; שני handshakes במקביל יצרו תור של scans ב-CoreWLAN וגרמו ל-"Resource busy" infinite loop. <strong>התיקון:</strong> per-peer flags — `attemptInFlight` בזמן ריצה, `lastAttempt` ל-cooldown 30s. אם handshake נכשל, נמתין 30s לפני ניסיון נוסף; אם הצליח (`helloSent=true`), לא מנסים שוב בכלל באותו session.
       </div>
@@ -2208,39 +2257,39 @@ if (shouldSpawn) spawnThread(clientHandshakeAndJoin);</div>
   <div class="path">cpp_core/src/bettersend_api.cpp — handshake בין סנדר למקבל לפני העברת קובץ</div>
   <div class="code-rows">
     <div class="code-row">
-      <div class="code-cell">// Wire: piggyback on Clipboard payload with "BS\t" prefix + JSON
-// Three kinds: request | accept | decline
-//   request → {"kind":"request","id":"...","size":N,"name":"file.jpg"}
-//   accept  → {"kind":"accept","id":"..."}
-//   decline → {"kind":"decline","id":"..."}
+      <div class="code-cell"><span class="cm">// Wire: piggyback on Clipboard payload with "BS\t" prefix + JSON</span>
+<span class="cm">// Three kinds: request | accept | decline</span>
+<span class="cm">//   request → {"kind":"request","id":"...","size":N,"name":"file.jpg"}</span>
+<span class="cm">//   accept  → {"kind":"accept","id":"..."}</span>
+<span class="cm">//   decline → {"kind":"decline","id":"..."}</span>
 
-struct PendingOutgoing { std::string filePath, peerName; };
-struct PendingIncoming { std::string senderName, senderIp, filename;
-                         std::size_t size; };
+<span class="kw">struct</span> <span class="ty">PendingOutgoing</span> { <span class="ty">std</span>::<span class="ty">string</span> filePath, peerName; };
+<span class="kw">struct</span> <span class="ty">PendingIncoming</span> { <span class="ty">std</span>::<span class="ty">string</span> senderName, senderIp, filename;
+                         <span class="ty">std</span>::<span class="ty">size_t</span> size; };
 
-// Sender (bettersend_send_file):
+<span class="cm">// Sender (bettersend_send_file):</span>
 pendingOutgoing[transferId] = {filePath, peerName};
-transport-&gt;send(ip, port, TextTransferable{ "BS\t" + requestJson });
+transport-&gt;<span class="fn">send</span>(ip, port, <span class="ty">TextTransferable</span>{ <span class="st">"BS\t"</span> + requestJson });
 
-// Receiver inbound (startServer callback):
-if (isControlPayload(data)) {
-  switch (kind):
-    case "request":
+<span class="cm">// Receiver inbound (startServer callback):</span>
+<span class="kw">if</span> (<span class="fn">isControlPayload</span>(data)) {
+  <span class="kw">switch</span> (kind):
+    <span class="kw">case</span> <span class="st">"request"</span>:
       pendingIncoming[id] = {sender, senderIp, filename, size};
-      ctx-&gt;requestCb(id, sender, filename, size);  // → Dart dialog
-      return;
-    case "accept":   // sender side: send the actual File now
+      ctx-&gt;<span class="fn">requestCb</span>(id, sender, filename, size);  <span class="cm">// → Dart dialog</span>
+      <span class="kw">return</span>;
+    <span class="kw">case</span> <span class="st">"accept"</span>:   <span class="cm">// sender side: send the actual File now</span>
       filePath = pendingOutgoing[id].filePath;
-      transport-&gt;send(peerIp, port, FileTransferable{filePath});
-      return;
-    case "decline":  // sender side: notify UI
-      ctx-&gt;declineCb(id);
-      return;
+      transport-&gt;<span class="fn">send</span>(peerIp, port, <span class="ty">FileTransferable</span>{filePath});
+      <span class="kw">return</span>;
+    <span class="kw">case</span> <span class="st">"decline"</span>:  <span class="cm">// sender side: notify UI</span>
+      ctx-&gt;<span class="fn">declineCb</span>(id);
+      <span class="kw">return</span>;
 }
 
-// User actions:
-bettersend_accept_transfer(id)  → sends accept control to senderIp
-bettersend_decline_transfer(id) → sends decline control to senderIp</div>
+<span class="cm">// User actions:</span>
+<span class="fn">bettersend_accept_transfer</span>(id)  → sends accept control to senderIp
+<span class="fn">bettersend_decline_transfer</span>(id) → sends decline control to senderIp</div>
       <div class="anno-cell info">
         <strong>למה control plane:</strong> דחיפת קבצים בלי הסכמה זה חוויית AirDrop שבורה. ב-Phase 1 v2 השליחה היא 4-שלבית: (1) sender שולח request, (2) receiver UI מציג AlertDialog, (3) receiver שולח accept/decline, (4) רק על accept — sender שולח את הקובץ.
         <br/><br/>
@@ -2257,40 +2306,40 @@ bettersend_decline_transfer(id) → sends decline control to senderIp</div>
   <div class="path">flutter_app/lib/ — UI changes for accept/decline + liveness prune</div>
   <div class="code-rows">
     <div class="code-row">
-      <div class="code-cell">// home_screen.dart
-final List&lt;DiscoveredDevice&gt;  _devices  = [];
-final Map&lt;String, DateTime&gt;   _lastSeen = {};
-Timer?                        _pruner;
+      <div class="code-cell"><span class="cm">// home_screen.dart</span>
+<span class="kw">final</span> <span class="ty">List</span>&lt;<span class="ty">DiscoveredDevice</span>&gt;  _devices  = [];
+<span class="kw">final</span> <span class="ty">Map</span>&lt;<span class="ty">String</span>, <span class="ty">DateTime</span>&gt;   _lastSeen = {};
+<span class="ty">Timer</span>?                        _pruner;
 
-_initBridge():
-  bridge.startServer(9000, onReceive: addToReceived);
-  bridge.onIncomingRequest(_handleIncomingRequest);
-  bridge.onTransferDeclined(_handleDeclined);
-  bridge.startAdvertising(9000);
-  bridge.startDiscovery(onFound: (d) {
-    _lastSeen[d.name] = DateTime.now();
-    if (!_devices.any((e) =&gt; e.name == d.name)) _devices.add(d);
+<span class="fn">_initBridge</span>():
+  bridge.<span class="fn">startServer</span>(<span class="nm">9000</span>, onReceive: addToReceived);
+  bridge.<span class="fn">onIncomingRequest</span>(_handleIncomingRequest);
+  bridge.<span class="fn">onTransferDeclined</span>(_handleDeclined);
+  bridge.<span class="fn">startAdvertising</span>(<span class="nm">9000</span>);
+  bridge.<span class="fn">startDiscovery</span>(onFound: (d) {
+    _lastSeen[d.name] = <span class="ty">DateTime</span>.<span class="fn">now</span>();
+    <span class="kw">if</span> (!_devices.<span class="fn">any</span>((e) =&gt; e.name == d.name)) _devices.<span class="fn">add</span>(d);
   });
-  _pruner = Timer.periodic(2s, _prune);
+  _pruner = <span class="ty">Timer</span>.<span class="fn">periodic</span>(2s, _prune);
 
-_prune(): remove devices with lastSeen older than 10s.
+<span class="fn">_prune</span>(): remove devices <span class="kw">with</span> lastSeen older than 10s.
 
-_pickAndSend(device):
-  result = await FilePicker.platform.pickFiles();
-  bridge.sendFile(device, result.path);  // sends Request, not file
-  SnackBar("Request sent; waiting for accept...");
+<span class="fn">_pickAndSend</span>(device):
+  result = <span class="kw">await</span> <span class="ty">FilePicker</span>.platform.<span class="fn">pickFiles</span>();
+  bridge.<span class="fn">sendFile</span>(device, result.path);  <span class="cm">// sends Request, not file</span>
+  <span class="ty">SnackBar</span>(<span class="st">"Request sent; waiting for accept..."</span>);
 
-_handleIncomingRequest(req):
-  showDialog(AlertDialog(
-    title: "Incoming file",
-    content: "${req.senderName} wants to send: ${req.filename} (${fmtBytes(size)})",
+<span class="fn">_handleIncomingRequest</span>(req):
+  <span class="fn">showDialog</span>(<span class="ty">AlertDialog</span>(
+    title: <span class="st">"Incoming file"</span>,
+    content: <span class="st">"${req.senderName} wants to send: ${req.filename} (${fmtBytes(size)})"</span>,
     actions: [
-      Decline → bridge.declineTransfer(req.transferId),
-      Accept  → bridge.acceptTransfer(req.transferId),
+      <span class="ty">Decline</span> → bridge.<span class="fn">declineTransfer</span>(req.transferId),
+      <span class="ty">Accept</span>  → bridge.<span class="fn">acceptTransfer</span>(req.transferId),
     ],
   ));
 
-_handleDeclined(id): SnackBar("Peer declined the transfer.");</div>
+<span class="fn">_handleDeclined</span>(id): <span class="ty">SnackBar</span>(<span class="st">"Peer declined the transfer."</span>);</div>
       <div class="anno-cell info">
         <strong>חוויית משתמש מלאה:</strong> Sender לוחץ Send → bridge בוחר transferId אקראי, שולח request → snackbar "Request sent; waiting for accept...". Receiver רואה Dialog → לוחץ Accept/Decline. אם Accept — הקובץ מגיע ל-Received list עם snackbar. אם Decline — sender מקבל snackbar "Peer declined".
         <br/><br/>
@@ -2308,15 +2357,15 @@ _handleDeclined(id): SnackBar("Peer declined the transfer.");</div>
   <div class="code-rows">
     <div class="code-row">
       <div class="code-cell">&lt;key&gt;com.apple.security.app-sandbox&lt;/key&gt;
-&lt;true/&gt;
+&lt;<span class="kw">true</span>/&gt;
 &lt;key&gt;com.apple.security.network.client&lt;/key&gt;
-&lt;true/&gt;
+&lt;<span class="kw">true</span>/&gt;
 &lt;key&gt;com.apple.security.network.server&lt;/key&gt;
-&lt;true/&gt;
+&lt;<span class="kw">true</span>/&gt;
 &lt;key&gt;com.apple.security.device.bluetooth&lt;/key&gt;
-&lt;true/&gt;
+&lt;<span class="kw">true</span>/&gt;
 &lt;key&gt;com.apple.security.files.user-selected.read-only&lt;/key&gt;
-&lt;true/&gt;
+&lt;<span class="kw">true</span>/&gt;
 </div>
       <div class="anno-cell info">
         <strong>הסיבה לתקלה שהיתה אצל Yonatan:</strong> ה-app sandbox של macOS חוסם פתיחת קבצים מחוץ ל-container אם אין entitlement מתאים. בלי <code>com.apple.security.files.user-selected.read-only</code>, <code>FilePicker.platform.pickFiles()</code> מצליח לפתוח את החלון אבל לא יכול לקרוא את הקובץ שנבחר. אצל Nathaniel (Windows) אין sandbox → עבד מיד. נוסף לשני קבצים — Debug + Release.
@@ -2331,41 +2380,41 @@ _handleDeclined(id): SnackBar("Peer declined the transfer.");</div>
   <div class="path">cpp_core/src/bettersend_api.cpp — discovery כבר לא מבצע auto-join; ה-join קורה רק ב-bettersend_connect_peer</div>
   <div class="code-rows">
     <div class="code-row">
-      <div class="code-cell">// discovery onFound: Mac no longer auto-joins. Windows host stays eager.
-#if defined(_WIN32)
-    ensureHostStarted(*ctx, kDefaultPort);
+      <div class="code-cell"><span class="cm">// discovery onFound: Mac no longer auto-joins. Windows host stays eager.</span>
+#<span class="kw">if</span> <span class="fn">defined</span>(_WIN32)
+    <span class="fn">ensureHostStarted</span>(*ctx, kDefaultPort);
 #endif
 
-// New C surface — fired ONLY on a user tap:
-using ConnectStatusCallback = void(*)(const char* peerName, int status);
-//   0=connecting  1=joined  2=ready (reachable)  3=failed
-void bettersend_connect_peer(handle, peerName, cb);
-//   Mac:     detached worker -> clientHandshakeAndJoin(ctx, peer, cb)
-//            GATT read {ssid,psk,hostIp,port} -> joinNetwork -> Hello
-//   Windows: poll peersByName[name].ip (set by the Mac's Hello)
-//            cb(2) when reachable, cb(3) after kConnectTimeoutSec (25s)</div>
+<span class="cm">// New C surface — fired ONLY on a user tap:</span>
+<span class="kw">using</span> <span class="ty">ConnectStatusCallback</span> = <span class="kw">void</span>(*)(<span class="kw">const</span> <span class="kw">char</span>* peerName, <span class="kw">int</span> status);
+<span class="cm">//   0=connecting  1=joined  2=ready (reachable)  3=failed</span>
+<span class="kw">void</span> <span class="fn">bettersend_connect_peer</span>(handle, peerName, cb);
+<span class="cm">//   Mac:     detached worker -> clientHandshakeAndJoin(ctx, peer, cb)</span>
+<span class="cm">//            GATT read {ssid,psk,hostIp,port} -> joinNetwork -> Hello</span>
+<span class="cm">//   Windows: poll peersByName[name].ip (set by the Mac's Hello)</span>
+<span class="cm">//            cb(2) when reachable, cb(3) after kConnectTimeoutSec (25s)</span></div>
       <div class="anno-cell info">
         <strong>למה שינינו (2026-06-08):</strong> קודם המק היה מתחבר אוטומטית לרשת של ה-peer הראשון שראה ב-BLE. עם יותר ממכשיר אחד זה גרם לכאוס — המק לא ידע לאיזו רשת להתחבר, ולעיתים ניסה להתחבר לפני שה-hotspot של Windows בכלל שידר, ונפל ללולאת retry איטית. <strong>הפתרון:</strong> ה-join קורה עכשיו <em>רק</em> כשהמשתמש לוחץ על מכשיר. <code>bettersend_connect_peer</code> מריץ worker מנותק (לא חוסם את ה-FFI thread, כי <code>joinNetwork</code>/<code>fetchPayload</code> נמשכים שניות), מדווח התקדמות ב-<code>ConnectStatusCallback</code>. הלחיצה היא התשובה ל"לאיזו רשת". זה בטוח עכשיו כי <code>a390e64</code> (eager host) + <code>6904aa8</code> (זיהוי מק דרך TCP Hello) שברו את ה-deadlock ש-§16 ב-failed-attempts תיעד (Windows כבר לא צריך לראות את המק ב-BLE).</div>
     </div>
     <div class="code-row">
-      <div class="code-cell">// MacWifiClientBroker.mm — joinNetwork retry tuning
-constexpr int kJoinAttempts  = 3;      // was 5
-constexpr int kJoinBackoffMs = 8000;   // was 2000
-// open scan (scanForNetworksWithSSID:nil) -> filter SSID -> associateToNetwork:</div>
+      <div class="code-cell"><span class="cm">// MacWifiClientBroker.mm — joinNetwork retry tuning</span>
+<span class="kw">constexpr</span> <span class="kw">int</span> kJoinAttempts  = <span class="nm">3</span>;      <span class="cm">// was 5</span>
+<span class="kw">constexpr</span> <span class="kw">int</span> kJoinBackoffMs = <span class="nm">8000</span>;   <span class="cm">// was 2000</span>
+<span class="cm">// open scan (scanForNetworksWithSSID:nil) -> filter SSID -> associateToNetwork:</span></div>
       <div class="anno-cell info">
         <strong>מהירות (2026-06-08):</strong> macOS לא חושף API להצטרפות ל-Wi-Fi בלי scan — <code>associateToNetwork:</code> דורש <code>CWNetwork*</code> מתוך scan פתוח (<code>NEHotspotConfiguration</code> = iOS בלבד). אבל ה-scan הפתוח אמין כשה-host כבר משדר. ה-backoff חייב להיות ≥ 8s: airportd חוסם scans רצופים בחלון ~5-6s עם <code>"Resource busy"</code>, אז retry מוקדם רק שורף scan. מכיוון שה-join קורה עכשיו בזמן הלחיצה (ה-host משדר כבר שניות), ה-scan הראשון מוצא את ה-SSID ומצטרף בניסיון 1. <strong>החלטה מודעת:</strong> לא משתיקים BLE סביב ה-scan — ה-"Resource busy" המתועד הוא rate-limit שנשאר גם אחרי nil-out של ה-CBManagers, וה-nil-out הוא הקוד שגרם ללולאות באג (failed-attempts §14).</div>
     </div>
     <div class="code-row">
-      <div class="code-cell">// ffi_bridge.dart
-Future&lt;bool&gt; connectToPeer(DiscoveredDevice device);
-//   one Completer per peer name; status 2/3 resolves it;
-//   Timer(_kConnectTimeout = 25s) is the safety net.
+      <div class="code-cell"><span class="cm">// ffi_bridge.dart</span>
+<span class="ty">Future</span>&lt;<span class="kw">bool</span>&gt; <span class="fn">connectToPeer</span>(<span class="ty">DiscoveredDevice</span> device);
+<span class="cm">//   one Completer per peer name; status 2/3 resolves it;</span>
+<span class="cm">//   Timer(_kConnectTimeout = 25s) is the safety net.</span>
 
-// home_screen.dart — tap a device
-onSend: () =&gt; _connectAndSend(device);
-//   show "Connecting to X…" spinner (+Cancel)
-//   await connectToPeer -> true: file picker -> sendFile
-//                       -> false: error SnackBar (tap to retry)</div>
+<span class="cm">// home_screen.dart — tap a device</span>
+onSend: () =&gt; <span class="fn">_connectAndSend</span>(device);
+<span class="cm">//   show "Connecting to X…" spinner (+Cancel)</span>
+<span class="cm">//   await connectToPeer -> true: file picker -> sendFile</span>
+<span class="cm">//                       -> false: error SnackBar (tap to retry)</span></div>
       <div class="anno-cell info">
         <strong>UI (2026-06-08):</strong> לחיצה על מכשיר פותחת דיאלוג ספינר לא-נסגר "Connecting to X…" עם Cancel. <code>connectToPeer</code> מחזיר <code>Future&lt;bool&gt;</code> שמסתיים על status 2 (true) / 3 (false), עם Timer של 25s כרשת ביטחון כדי שהספינר לא ייתקע (ה-worst case של ה-native יכול לעבור את הזמן). בהצלחה — הספינר נסגר ונפתח בורר הקבצים (הזרימה הקיימת); בכשלון — SnackBar. Cancel סוגר את הדיאלוג; תוצאה מאוחרת מתעדכנת ברקע ולא מחזירה את הדיאלוג. ה-<code>peerName</code> שה-native מקצה ב-heap משוחרר ב-Dart דרך <code>bettersend_free_cstr</code> בכל callback. אותו gate הוסף גם ל-<code>device_list_screen.dart</code>.</div>
     </div>
@@ -2378,20 +2427,218 @@ onSend: () =&gt; _connectAndSend(device);
   <div class="path">cpp_core/src/BleDiscovery_Windows.cpp — שם סינתטי כשאין LocalName</div>
   <div class="code-rows">
     <div class="code-row">
-      <div class="code-cell">// handleReceived: קיבלנו את ה-ServiceUuid של BetterSend, אבל אין LocalName
-// (advert ראשי רווי ע"י ה-UUID 128-bit; macOS לא עונה SCAN_RSP עם שם שמיש)
+      <div class="code-cell"><span class="cm">// handleReceived: קיבלנו את ה-ServiceUuid של BetterSend, אבל אין LocalName</span>
+<span class="cm">// (advert ראשי רווי ע"י ה-UUID 128-bit; macOS לא עונה SCAN_RSP עם שם שמיש)</span>
 {
-    std::lock_guard lock(committedMu_);
-    auto it = committedName_.find(addr);
-    if (it != committedName_.end()) name = it->second;            // reuse
-    else {
-        if (name.empty()) name = "BetterSend-" + lastFourHex(addr); // e.g. BetterSend-2B73
-        committedName_[addr] = name;                              // commit-then-reuse
+    <span class="ty">std</span>::lock_guard <span class="fn">lock</span>(committedMu_);
+    <span class="kw">auto</span> it = committedName_.<span class="fn">find</span>(addr);
+    <span class="kw">if</span> (it != committedName_.<span class="fn">end</span>()) name = it->second;            <span class="cm">// reuse</span>
+    <span class="kw">else</span> {
+        <span class="kw">if</span> (name.<span class="fn">empty</span>()) name = <span class="st">"BetterSend-"</span> + <span class="fn">lastFourHex</span>(addr); <span class="cm">// e.g. BetterSend-2B73</span>
+        committedName_[addr] = name;                              <span class="cm">// commit-then-reuse</span>
     }
 }
-surfaceIfNew(name, addr);</div>
+<span class="fn">surfaceIfNew</span>(name, addr);</div>
       <div class="anno-cell info">
         <strong>מה קרה (2026-06-08, מדידה אמפירית אצל Netanel):</strong> ה-watcher של Windows <em>כן</em> שומע את ה-advert של המק (~71 התאמות ServiceUuid ב-100s, גם כשה-hotspot דולק) — אז ההשערה ש-eager-host (a390e64) הרס את ה-watcher <strong>הופרכה</strong>. הבעיה האמיתית: ה-advert מגיע <em>בלי שם</em> — ה-UUID ה-128-bit ממלא את ה-advert הראשי, ו-CoreBluetooth לא מספק SCAN_RSP עם LocalName שמיש (אפס scan-responses עם שם מהמק לאורך כל הסשן). הקוד הישן זרק peer בלי שם (ה-fallback של <code>BluetoothLEDevice</code> החזיר רק "Bluetooth XX:.." ונזרק) → המק לא הופיע אף פעם ב-Windows. <strong>התיקון:</strong> Windows ממציא שם יציב <code>BetterSend-&lt;4 hex אחרונים של הכתובת&gt;</code> כך שה-peer נראה ולחיץ; השם האמיתי מגיע אחר כך דרך ה-TCP Hello בחיבור הראשון. <code>commit-then-reuse</code> לפי כתובת מונע כפילות. <strong>"עבד ב-80b10a7" היה אשליה:</strong> ה-auto-join גרם למק להתחבר מיד וה-Hello הציף אותו ב-Windows; tap-to-connect הסיר את ה-auto-join, אז בלי לחיצה אין Hello ואין מה להציף. <strong>ה-duty-cycle (83ad0cd) בוטל</strong> — תקף את הצד הלא-נכון (advert של המק שמגיע ממילא) ואף עלול לאכול את ה-SCAN_RSP. הקוד נכתב בצד Windows; <strong>טעון build+אימות אצל Netanel.</strong></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── השלמות — קבצים שלא היו מתועדים (2026-06-09) ─────────────────────────── -->
+
+<div id="device" class="file-section">
+  <h2>Device.h</h2>
+  <div class="path">cpp_core/include/Device.h — value type של peer שהתגלה ברשת</div>
+  <div class="code-rows">
+    <div class="code-row">
+      <div class="code-cell"><span class="kw">struct</span> <span class="ty">Device</span> {
+  <span class="ty">std</span>::<span class="ty">string</span> name;   <span class="cm">// שם קריא שהמכשיר משדר</span>
+  <span class="ty">std</span>::<span class="ty">string</span> ip;     <span class="cm">// כתובת IPv4</span>
+  <span class="kw">int</span>         port;   <span class="cm">// פורט TCP שעליו המכשיר מאזין</span>
+
+  <span class="cm">// השוואה + סדר לפי כל השדות (spaceship, C++20)</span>
+  <span class="kw">auto</span> operator&lt;=&gt;(<span class="kw">const</span> <span class="ty">Device</span>&amp;) <span class="kw">const</span> = default;
+};</div>
+      <div class="anno-cell info">
+        <strong>aggregate פשוט, בלי invariants.</strong> זה ה-value type שעובר ב-callback של <a href="#idiscovery">IDiscovery</a> ודרך ה-C API אל Flutter. ה-<code>operator&lt;=&gt;</code> שמוגדר <code>= default</code> נותן בחינם השוואה וסדר לפי כל השדות — שימושי ל-dedup בתוך <code>std::set</code>. <strong>הערת עיצוב:</strong> כשייכנסו סוגי מכשירים (iOS/Android/macOS/Windows) — מוסיפים <code>enum</code> + factory, לא שדות ad-hoc.
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="logger" class="file-section">
+  <h2>Logger.h</h2>
+  <div class="path">cpp_core/include/Logger.h — Singleton לוגינג thread-safe; רק דרך מאקרו BS_LOG_*</div>
+  <div class="code-rows">
+    <div class="code-row">
+      <div class="code-cell"><span class="kw">class</span> <span class="ty">Logger</span> {
+  <span class="kw">enum</span> <span class="kw">class</span> <span class="ty">Level</span> { <span class="ty">Debug</span>, <span class="ty">Info</span>, <span class="ty">Warning</span>, <span class="ty">Error</span> };
+
+  <span class="kw">static</span> <span class="ty">Logger</span>&amp; <span class="fn">instance</span>() <span class="kw">noexcept</span> {   <span class="cm">// Meyer's singleton</span>
+    <span class="kw">static</span> <span class="ty">Logger</span> inst;
+    <span class="kw">return</span> inst;
+  }
+
+  <span class="kw">template</span>&lt;<span class="kw">typename</span>... <span class="ty">Args</span>&gt;
+  <span class="kw">void</span> <span class="fn">log</span>(<span class="ty">Level</span> lvl, <span class="ty">std</span>::string_view component,
+           <span class="ty">std</span>::source_location loc,
+           <span class="ty">std</span>::format_string&lt;<span class="ty">Args</span>...&gt; fmt, <span class="ty">Args</span>&amp;&amp;... args);
+};
+
+<span class="cm">// מאקרו נוחות — לוכדים את מיקום המקור (file:line) אוטומטית:</span>
+#define <span class="ty">BS_LOG_DEBUG</span>(component, ...)  <span class="ty">BS_LOG</span>(<span class="ty">Debug</span>,   component, __VA_ARGS__)
+#define <span class="ty">BS_LOG_INFO</span>(component, ...)   <span class="ty">BS_LOG</span>(<span class="ty">Info</span>,    component, __VA_ARGS__)
+#define <span class="ty">BS_LOG_WARN</span>(component, ...)   <span class="ty">BS_LOG</span>(<span class="ty">Warning</span>, component, __VA_ARGS__)
+#define <span class="ty">BS_LOG_ERROR</span>(component, ...)  <span class="ty">BS_LOG</span>(<span class="ty">Error</span>,   component, __VA_ARGS__)</div>
+      <div class="anno-cell info">
+        <strong>Singleton (Meyer's) — זרם לוג אחד לכל המערכת.</strong> נעילה ב-<code>std::mutex</code> הופכת אותו ל-thread-safe (קריטי כי discovery + transport רצים על threads ברקע). הפורמט קבוע: <code>[תאריך שעה.ms] [LEVEL] [Component] הודעה (file:line)</code>, וה-<code>source_location</code> נלכד אוטומטית במאקרו. <strong>חוק הפרויקט:</strong> אסור <code>printf</code>/<code>cout</code>/<code>fprintf</code> — רק <code>BS_LOG_DEBUG/INFO/WARN/ERROR("Component", fmt, ...)</code>. אפשר להפנות לקובץ עם <code>setOutputFile()</code> ולסנן רמה עם <code>setLevel()</code>.
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="iclipboard" class="file-section">
+  <h2>IClipboard.h</h2>
+  <div class="path">cpp_core/include/IClipboard.h — Strategy לקריאה/כתיבה של לוח המערכת (stub עד Phase 3)</div>
+  <div class="code-rows">
+    <div class="code-row">
+      <div class="code-cell"><span class="kw">class</span> <span class="ty">IClipboard</span> {
+<span class="kw">public</span>:
+  <span class="kw">virtual</span> ~<span class="ty">IClipboard</span>() = default;
+
+  <span class="cm">// קריאת טקסט מהלוח; מחזיר ריק אם אין טקסט</span>
+  [[nodiscard]] <span class="kw">virtual</span> <span class="ty">std</span>::<span class="ty">string</span> <span class="fn">read</span>() = <span class="nm">0</span>;
+
+  <span class="cm">// כתיבת טקסט ללוח</span>
+  <span class="kw">virtual</span> <span class="kw">void</span> <span class="fn">write</span>(<span class="kw">const</span> <span class="ty">std</span>::<span class="ty">string</span>&amp; text) = <span class="nm">0</span>;
+};</div>
+      <div class="anno-cell info">
+        <strong>אינטרפייס בלבד — המימושים מחכים ל-Phase 3.</strong> כל פלטפורמה תספק מימוש משלה מאחורי הממשק: macOS/iOS דרך <code>NSPasteboard</code>/<code>UIPasteboard</code>, Windows דרך <code>OpenClipboard</code>, Android דרך JNI ל-<code>ClipboardManager</code>. הבחירה תהיה ב-build דרך CMake; הבדיקות ישתמשו ב-<code>MockClipboard</code> (מחרוזת בזיכרון). שמירת ה-stub עכשיו מקיימת את ה-OCP — הוספת clipboard לא תיגע בקוד קיים.
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="build" class="file-section">
+  <h2>CMakeLists.txt</h2>
+  <div class="path">cpp_core/CMakeLists.txt — בניית הספרייה המשותפת + בחירת מקורות לפי פלטפורמה</div>
+  <div class="code-rows">
+    <div class="code-row">
+      <div class="code-cell"><span class="fn">add_library</span>(bettersend_core <span class="ty">SHARED</span>
+    src/<span class="ty">TcpTransport</span>.cpp
+    src/<span class="ty">TransferProtocol</span>.cpp
+    src/bettersend_api.cpp)
+
+<span class="kw">if</span>(<span class="ty">APPLE</span>)
+    <span class="fn">target_sources</span>(bettersend_core <span class="ty">PRIVATE</span>
+        src/<span class="ty">BleDiscovery_Mac</span>.mm
+        src/<span class="ty">BleHandshake_Mac</span>.mm
+        src/<span class="ty">MacWifiClientBroker</span>.mm)
+<span class="fn">elseif</span>(<span class="ty">WIN32</span>)
+    <span class="fn">target_sources</span>(bettersend_core <span class="ty">PRIVATE</span>
+        src/<span class="ty">BleDiscovery_Windows</span>.cpp
+        src/<span class="ty">BleHandshake_Windows</span>.cpp
+        src/<span class="ty">WindowsHotspotBroker</span>.cpp)
+<span class="kw">else</span>()
+    <span class="fn">target_sources</span>(bettersend_core <span class="ty">PRIVATE</span> src/<span class="ty">MdnsDiscovery</span>.cpp)
+<span class="fn">endif</span>()</div>
+      <div class="anno-cell info">
+        <strong>Strategy ברמת ה-build.</strong> רק קובץ ה-<code>.cpp</code> של ה-discovery/broker מתחלף לפי פלטפורמה — כל שאר הקוד עובד מול <code>IDiscovery</code>/<code>makeDiscovery()</code> ולא משתנה. תלויות נמשכות אוטומטית עם <code>FetchContent</code>: <strong>Asio standalone</strong> (asio-1-28-2, ללא Boost) ל-TCP, ו-<strong>nlohmann/json</strong> v3.11.3 ל-header של ה-wire. קישור פלטפורמתי: Apple → <code>Foundation</code> + <code>CoreBluetooth</code> + <code>CoreWLAN</code>; Windows → <code>ws2_32</code>/<code>iphlpapi</code> + WinRT (<code>runtimeobject</code>, <code>ole32</code>) + חיפוש אוטומטי של headers של cppwinrt ב-Windows SDK. C++20 חובה (<code>std::format</code>, <code>source_location</code>, spaceship).
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="tests" class="file-section">
+  <h2>Unit tests — GoogleTest</h2>
+  <div class="path">cpp_core/tests/ — test_protocol / test_transport / test_discovery + widget_test.dart</div>
+  <div class="code-rows">
+    <div class="code-row">
+      <div class="code-cell"><span class="cm">// test_protocol.cpp — לוגיקה טהורה, בלי I/O (Arrange/Act/Assert)</span>
+<span class="ty">TEST</span>(<span class="ty">ProtocolTest</span>, <span class="ty">EncodeDecodeFileHeader_RoundTrip</span>)  { ... }
+<span class="ty">TEST</span>(<span class="ty">ProtocolTest</span>, <span class="ty">EncodeDecodeClipboardHeader_RoundTrip</span>) { ... }
+<span class="ty">TEST</span>(<span class="ty">ProtocolTest</span>, <span class="ty">LengthPrefixIsBigEndian</span>)           { ... }
+<span class="ty">TEST</span>(<span class="ty">ProtocolTest</span>, <span class="ty">DecodeTooShort_Throws</span>)             { ... }
+<span class="ty">TEST</span>(<span class="ty">ProtocolTest</span>, <span class="ty">DecodeInvalidJson_Throws</span>)          { ... }
+
+<span class="cm">// test_transport.cpp — round-trip על localhost</span>
+<span class="ty">TEST</span>(<span class="ty">TransportTest</span>, <span class="ty">SendAndReceiveClipboard_LocalhostRoundTrip</span>) { ... }
+<span class="ty">TEST</span>(<span class="ty">TransportTest</span>, <span class="ty">SendAndReceiveFile_LocalhostRoundTrip</span>)      { ... }
+<span class="ty">TEST</span>(<span class="ty">TransportTest</span>, <span class="ty">MultipleSequentialTransfers_AllArrive</span>)      { ... }
+<span class="ty">TEST</span>(<span class="ty">TransportTest</span>, <span class="ty">StopServer_NoCrashAfterStop</span>)               { ... }
+
+<span class="cm">// test_discovery.cpp — smoke ל-makeDiscovery() (lifecycle בלבד)</span>
+<span class="ty">TEST</span>(<span class="ty">DiscoveryTest</span>, <span class="ty">StartAndStop_NoCrashOrDeadlock</span>)   { ... }
+<span class="ty">TEST</span>(<span class="ty">DiscoveryTest</span>, <span class="ty">StopBeforeStart_NoCrash</span>)          { ... }
+
+<span class="cm">// widget_test.dart — Splash מציג את הכותרת והסלוגן</span>
+<span class="fn">testWidgets</span>('<span class="ty">Splash</span> shows <span class="ty">BetterSend</span> title', ...);</div>
+      <div class="anno-cell info">
+        <strong>GoogleTest נמשך אוטומטית</strong> (v1.14.0 דרך <code>FetchContent</code>), והבדיקות נרשמות עם <code>gtest_discover_tests</code>. <strong>חלוקה:</strong> <code>test_protocol</code> בודק encode/decode round-trip + big-endian + זריקות על קלט פגום (5 בדיקות); <code>test_transport</code> בודק העברת קובץ/clipboard על localhost, רצף העברות, ועצירה בלי crash (4 בדיקות); <code>test_discovery</code> בודק רק מחזור חיים (start/stop) כי גילוי peer אמיתי דורש שני מכשירים ונבדק ידנית end-to-end. הרצה: <code>cmake -B build -DBUILD_TESTS=ON &amp;&amp; cmake --build build &amp;&amp; cd build &amp;&amp; ctest --verbose</code>. בדיקה שעדיין skeleton מסומנת SKIPPED — זה תקין.
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="transfer-screen" class="file-section">
+  <h2>transfer_screen.dart</h2>
+  <div class="path">flutter_app/lib/screens/transfer_screen.dart — מסך התקדמות בזמן שליחה יוצאת</div>
+  <div class="code-rows">
+    <div class="code-row">
+      <div class="code-cell"><span class="kw">class</span> <span class="ty">TransferScreen</span> <span class="kw">extends</span> <span class="ty">StatelessWidget</span> {
+  <span class="kw">final</span> <span class="ty">DiscoveredDevice</span> device;
+  <span class="kw">final</span> <span class="ty">String</span>           fileName;
+
+  @<span class="kw">override</span>
+  <span class="ty">Widget</span> <span class="fn">build</span>(<span class="ty">BuildContext</span> context) {
+    <span class="kw">return</span> <span class="ty">Scaffold</span>(
+      appBar: <span class="ty">AppBar</span>(title: <span class="kw">const</span> <span class="ty">Text</span>('<span class="ty">Sending</span>...')),
+      body: <span class="ty">Center</span>(child: <span class="ty">Column</span>(children: [
+        <span class="ty">Icon</span>(<span class="ty">Icons</span>.upload, size: <span class="nm">72</span>),
+        <span class="ty">Text</span>(fileName),
+        <span class="ty">Text</span>('→ ${device.name}'),
+        <span class="kw">const</span> <span class="ty">LinearProgressIndicator</span>(),
+        <span class="ty">OutlinedButton</span>(onPressed: () =&gt; <span class="ty">Navigator</span>.<span class="fn">pop</span>(context),
+                       child: <span class="kw">const</span> <span class="ty">Text</span>('<span class="ty">Close</span>')),
+      ])),
+    );
+  }
+}</div>
+      <div class="anno-cell info">
+        <strong>StatelessWidget פשוט בזמן שליחה.</strong> נתיב ה-send ב-C עדיין סינכרוני (אין callbacks של progress — מחוברים ב-Phase 4), אז המסך מציג <code>LinearProgressIndicator</code> לא-קצוב ונסגר בלחיצת המשתמש. קבלה מוצגת אחרת — SnackBar + רשימת Received ב-<a href="#homescreen">HomeScreen</a> — ולכן אין כאן וריאנט "Receiving". מקבל <code>device</code> + <code>fileName</code> ל-push מתוך זרימת השליחה.
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="device-list" class="file-section">
+  <h2>device_list_screen.dart</h2>
+  <div class="path">flutter_app/lib/screens/device_list_screen.dart — בורר מכשירים כשכבר יש תוכן לשליחה</div>
+  <div class="code-rows">
+    <div class="code-row">
+      <div class="code-cell"><span class="kw">class</span> <span class="ty">DeviceListScreen</span> <span class="kw">extends</span> <span class="ty">StatelessWidget</span> {
+  <span class="kw">final</span> <span class="ty">List</span>&lt;<span class="ty">DiscoveredDevice</span>&gt; devices;
+  <span class="kw">final</span> <span class="ty">BetterSendBridge</span>       bridge;
+  <span class="kw">final</span> <span class="ty">String</span>? filePath;       <span class="cm">// null כששולחים clipboard</span>
+  <span class="kw">final</span> <span class="ty">String</span>? clipboardText;  <span class="cm">// null כששולחים קובץ</span>
+
+  <span class="cm">// connect-then-send: ספינר → connectToPeer → file picker → send</span>
+  <span class="ty">Future</span>&lt;<span class="kw">void</span>&gt; <span class="fn">_send</span>(<span class="ty">BuildContext</span> context, <span class="ty">DiscoveredDevice</span> device) <span class="kw">async</span> {
+    <span class="fn">showDialog</span>(...);  <span class="cm">// "Connecting to ${device.name}…" + Cancel</span>
+    <span class="kw">final</span> ok = <span class="kw">await</span> bridge.<span class="fn">connectToPeer</span>(device);
+    <span class="kw">if</span> (!ok) { /* <span class="ty">SnackBar</span> <span class="st">"Could not connect"</span> */ <span class="kw">return</span>; }
+
+    <span class="kw">if</span> (filePath != null) {
+      bridge.<span class="fn">sendFile</span>(device, filePath!);          <span class="cm">// → TransferScreen</span>
+    } <span class="kw">else</span> <span class="kw">if</span> (clipboardText != null) {
+      bridge.<span class="fn">sendClipboard</span>(device, clipboardText!);
+    }
+  }
+}</div>
+      <div class="anno-cell info">
+        <strong>בורר יעד עצמאי לזרימות share-sheet / drag-and-drop (Phase 4).</strong> <a href="#homescreen">HomeScreen</a> עושה את השליחה inline (בחר קובץ → בחר מכשיר), אז המסך הזה שמור למצב ההפוך — כבר יש <code>filePath</code> <em>או</em> <code>clipboardText</code> ורק צריך לבחור למי. ה-<code>_send</code> משכפל את ה-gate של "connect ואז send": פותח ספינר, מריץ <code>connectToPeer</code>, ורק על הצלחה שולח (קובץ → דרך <a href="#transfer-screen">TransferScreen</a>, clipboard → ישירות). מציג ספינר "Scanning…" כשאין מכשירים.
+      </div>
     </div>
   </div>
 </div>
