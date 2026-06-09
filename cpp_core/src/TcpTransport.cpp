@@ -85,6 +85,10 @@ void TcpTransport::setSaveDirectory(std::string dir) {
 		saveDir_.empty() ? "<temp>" : saveDir_);
 }
 
+void TcpTransport::setProgressCallback(ProgressFn cb) {
+	progressCb_ = std::move(cb);
+}
+
 void TcpTransport::startServer(int port, std::function<void(Transfer)> onReceive) {
 	if (running_.exchange(true)) {
 		BS_LOG_WARN(kComponent, "startServer called while already running");
@@ -179,12 +183,26 @@ void TcpTransport::startServer(int port, std::function<void(Transfer)> onReceive
 							}
 							std::vector<char> chunk(kReceiveBufferSize);
 							std::size_t left = hdr.size;
+							std::size_t done = 0;
+							int lastPct = -1;
+							auto reportRecv = [&]() {
+								if (!progressCb_) return;
+								const int pct = hdr.size
+									? static_cast<int>((done * 100) / hdr.size) : 100;
+								if (pct != lastPct) {
+									lastPct = pct;
+									progressCb_(1, hdr.senderName, hdr.name, done, hdr.size);
+								}
+							};
+							reportRecv();   // 0%
 							while (left > 0) {
 								const std::size_t want =
 									std::min<std::size_t>(left, chunk.size());
 								asio::read(sock, asio::buffer(chunk.data(), want));
 								out.write(chunk.data(), static_cast<std::streamsize>(want));
 								left -= want;
+								done += want;
+								reportRecv();
 							}
 							out.close();
 							transfer.data = path.string();
@@ -236,8 +254,28 @@ bool TcpTransport::send(const std::string& ip, int port, const ITransferable& it
 		sock.connect(asio::ip::tcp::endpoint(addr, static_cast<uint16_t>(port)));
 
 		asio::write(sock, asio::buffer(encoded.data(), encoded.size()));
-		if (!payload.empty()) {
-			asio::write(sock, asio::buffer(payload.data(), payload.size()));
+
+		// Stream the payload in chunks so file transfers can report progress.
+		// Only FILE transfers report (control/clipboard/Hello are tiny).
+		const bool        isFile = (headerStruct.type == MessageHeader::Type::File);
+		const std::size_t total  = payload.size();
+		std::size_t sent = 0;
+		int lastPct = -1;
+		auto reportSend = [&]() {
+			if (!progressCb_ || !isFile) return;
+			const int pct = total ? static_cast<int>((sent * 100) / total) : 100;
+			if (pct != lastPct) {
+				lastPct = pct;
+				progressCb_(0, ip, headerStruct.name, sent, total);
+			}
+		};
+		reportSend();   // 0%
+		while (sent < total) {
+			const std::size_t want =
+				std::min<std::size_t>(total - sent, kReceiveBufferSize);
+			asio::write(sock, asio::buffer(payload.data() + sent, want));
+			sent += want;
+			reportSend();
 		}
 		sock.shutdown(asio::ip::tcp::socket::shutdown_both, ec);
 		sock.close();

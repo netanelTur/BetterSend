@@ -481,7 +481,7 @@
     <span style="background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;">Future — Cloud Room</span>
   </div>
   <div class="meta">
-    <span>עדכון אחרון: 2026-06-09 (Step 2 — tap-to-connect סימטרי: גם Windows יכול ליזום. Windows-tap משדר connect-request ב-advert [kBleConnectMagicBytes D1 במקום D0] → המק מזהה ומצטרף → Hello → ה-poll של Windows רואה IP → ספינר נסגר. setConnectRequested ב-IDiscovery; Device.connectRequested; connect_peer של המק עושה poll במקום להיתקע. צד Windows טעון אימות אצל Netanel.)</span>
+    <span>עדכון אחרון: 2026-06-09 (Progress bar להעברות קבצים בשני הצדדים — TcpTransport::setProgressCallback [dir 0=שליחה/1=קבלה, throttle לאחוז שלם, קבצים בלבד]; send עכשיו chunked; bettersend_set_progress_callback + bridge.onProgress + TransferProgress; UI: סקשן "Transfers" עם LinearProgressIndicator. + Step 2 tap-to-connect סימטרי אומת ועובד [תוקן publisher abort status=4 + alias לשם placeholder].)</span>
     <span>עדכון קודם: 2026-06-09 (תוקן באג פריסה בעמודת ההסברים; הושלם תיעוד לקבצים שחסרו — Device.h, Logger.h, IClipboard.h, CMakeLists.txt, בדיקות GTest, transfer_screen.dart, device_list_screen.dart; תוקנו קישורי TOC שבורים)</span>
     <span>עדכון קודם: 2026-06-09 (תיקון עיצוב — sections מ-IConnectionBroker.h ואילך; מיזוג 0a3e58b: שם placeholder ל-Windows כשאין LocalName + ביטול duty-cycle של BLE)</span>
     <span>שלב פעיל: Phase 1 — צינור: BLE discovery → Windows מקים hotspot (eager) → tap-to-connect סימטרי (לחיצה במק = join ישיר; לחיצה ב-Windows משדרת connect-request ב-advert והמק מצטרף) → Hello → TCP. Control plane של request/accept/decline פעיל.</span>
@@ -2700,6 +2700,48 @@ else { cb(0); discovery->setConnectRequested(true); // advert D1
 //   clientHandshakeAndJoin(...,nullptr) [guarded by attemptInFlight/helloSent]</div>
       <div class="anno-cell info">
         <strong>הרעיון (2026-06-09):</strong> המשתמש רצה UX סימטרי — לוחצים על מכשיר בכל צד → מתחבר → מעבירים. אבל ב-Phase 1 רק המק יכול להצטרף ל-hotspot של Windows, אז לחיצה ב-Windows חייבת <em>לגרום למק להצטרף</em>. הפתרון: Windows מוסיף סימן "connect requested" ל-advert שלו (אותו magic, בייט אחרון D1 במקום D0 — אפס בייטים נוספים, נשארים בתקציב 31). המק כבר מנתח את ה-advert הזה ב-discovery, אז הוא מזהה את D1, מסמן <code>Device.connectRequested</code>, וה-API מפעיל את אותו <code>clientHandshakeAndJoin</code> כמו בלחיצה מקומית. המק מצטרף → Hello → ה-poll של <code>bettersend_connect_peer</code> בצד Windows רואה את ה-IP → סוגר את הספינר. הסימן חוזר ל-D0 בסיום. <strong>בלי GATT/אנטנה נוספים</strong> (לא צריך חיבור BLE נוסף). <strong>בלי auto-join</strong> — המק מצטרף רק כשמזמינים אותו (Windows) או כשלוחצים מקומית, אז אין כאוס ריבוי-מכשירים ואין מירוץ. <code>connect_peer</code> של המק חוזק לעשות <code>poll</code> על join שכבר רץ במקום no-op (מקור ה-hang הקודם). <strong>צד Windows (republish של ה-advert) טעון build+אימות אצל Netanel.</strong></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Progress bar — התקדמות העברת קובץ בשני הצדדים (2026-06-09) ──────────── -->
+<div id="transfer-progress" class="file-section">
+  <h2>Progress bar — התקדמות העברה (שולח + מקבל)</h2>
+  <div class="path">TcpTransport (setProgressCallback) · bettersend_api (bettersend_set_progress_callback) · ffi_bridge.dart (onProgress) · home_screen.dart</div>
+  <div class="code-rows">
+    <div class="code-row">
+      <div class="code-cell">// TcpTransport.h — concrete callback (NOT on ITransport; like setSaveDirectory)
+using ProgressFn = std::function&lt;void(int dir, const std::string&amp; peer,
+                                     const std::string&amp; name,
+                                     std::size_t done, std::size_t total)&gt;;
+void setProgressCallback(ProgressFn cb);
+
+// send(): payload was ONE asio::write — now chunked so it can report.
+const bool isFile = (headerStruct.type == MessageHeader::Type::File);
+while (sent &lt; total) { write(chunk); sent += want; reportSend(); }  // dir=0
+
+// receive loop (already chunked): reportRecv() per chunk                // dir=1
+// both throttle to integer-% change (<= 101 calls per transfer); FILE only</div>
+      <div class="anno-cell info">
+        <strong>למה (2026-06-09):</strong> בקבצים גדולים צריך משוב התקדמות בשני הצדדים. ה-callback יושב על <code>TcpTransport</code> הקונקרטי (לא על <code>ITransport</code>) — אותו דפוס OCP כמו <code>setSaveDirectory</code>, כי <code>ctx-&gt;transport</code> הוא <code>unique_ptr&lt;TcpTransport&gt;</code>. צד הקבלה כבר קרא ב-chunks; צד השליחה כתב את כל ה-payload ב-<code>asio::write</code> אחד — פוצל ל-chunks של <code>kReceiveBufferSize</code> כדי לדווח. דיווח רק על <strong>קבצים</strong> (בקרה/clipboard/Hello קטנים מדי, מסוננים לפי <code>headerStruct.type</code>), ו-throttle לשינוי אחוז שלם → לכל היותר ~101 קריאות להעברה (גם ל-1GB).</div>
+    </div>
+    <div class="code-row">
+      <div class="code-cell">// bettersend_api.cpp
+using TransferProgressCallback = void(*)(int dir, const char* peer,
+                                         const char* name, long long done, long long total);
+void bettersend_set_progress_callback(handle, cb);
+//   wraps TcpTransport callback; heap-copies peer+name (Dart frees via free_cstr)
+
+// ffi_bridge.dart
+void onProgress(void Function(TransferProgress) cb);
+class TransferProgress { bool sending; String peerName, fileName; int transferred, total;
+                         double fraction; bool done; }
+
+// home_screen.dart — _progress map keyed '${out|in}:filename'
+if (_progress.isNotEmpty) ... "Transfers" section of LinearProgressIndicator
+// entry cleared 1.5s after hitting 100%</div>
+      <div class="anno-cell info">
+        <strong>FFI + UI:</strong> אותו כלל בעלות כמו שאר ה-callbacks — ה-native מקצה ב-heap, ה-Dart משחרר ב-<code>bettersend_free_cstr</code>. ה-UI שומר מפה של העברות פעילות לפי כיוון+שם-קובץ, מציג <code>LinearProgressIndicator</code> עם אחוז לכל אחת, ומנקה ערך 1.5 שניות אחרי שהגיע ל-100% כדי שהעברות שהסתיימו לא יישארו. הערה: <code>payload()</code> עדיין נטען כולו לזיכרון (תקין ל-Phase 1 / 10MB); streaming send אמיתי הוא follow-up ל-Phase 4.</div>
     </div>
   </div>
 </div>

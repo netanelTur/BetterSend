@@ -98,6 +98,13 @@ using TransferDeclineCallback = void(*)(const char* transferId);
 // the Dart side frees it via bettersend_free_cstr.
 using ConnectStatusCallback = void(*)(const char* peerName, int status);
 
+// Fired during in-flight FILE transfers. dir: 0 = sending, 1 = receiving.
+// peerName/fileName are heap-allocated; the Dart side frees them via
+// bettersend_free_cstr. Throttled to integer-percent changes in TcpTransport.
+using TransferProgressCallback = void(*)(int dir, const char* peerName,
+                                         const char* fileName,
+                                         long long done, long long total);
+
 struct BetterSendContext {
 	std::string                          localDeviceName;
 	std::shared_ptr<TransferProtocol>    protocol;
@@ -514,6 +521,29 @@ void bettersend_set_save_dir(void* handle, const char* dir) {
 		ctx->transport->setSaveDirectory(dir ? dir : "");
 	} catch (const std::exception& e) {
 		BS_LOG_ERROR("API", "bettersend_set_save_dir failed: {}", e.what());
+	}
+}
+
+// Register a progress callback for in-flight file transfers (both directions).
+// The transport invokes it on background threads; we heap-copy the strings and
+// hand them to the C callback, which the Dart bridge frees via
+// bettersend_free_cstr (same ownership rule as the other callbacks).
+void bettersend_set_progress_callback(void* handle,
+                                      BetterSend::TransferProgressCallback cb) {
+	if (!handle) return;
+	try {
+		auto* ctx = static_cast<BetterSend::BetterSendContext*>(handle);
+		ctx->transport->setProgressCallback(
+			[cb](int dir, const std::string& peer, const std::string& name,
+			     std::size_t done, std::size_t total) {
+				if (cb) {
+					cb(dir, BetterSend::heapCopy(peer), BetterSend::heapCopy(name),
+					   static_cast<long long>(done), static_cast<long long>(total));
+				}
+			});
+		BS_LOG_INFO("API", "Progress callback registered");
+	} catch (const std::exception& e) {
+		BS_LOG_ERROR("API", "bettersend_set_progress_callback failed: {}", e.what());
 	}
 }
 

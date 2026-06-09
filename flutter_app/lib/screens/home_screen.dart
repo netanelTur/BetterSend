@@ -22,6 +22,10 @@ class _HomeScreenState extends State<HomeScreen> {
 	final List<DiscoveredDevice>    _devices   = [];
 	final Map<String, DateTime>     _lastSeen  = {};
 	final List<ReceivedTransfer>    _received  = [];
+	// Live file-transfer progress, keyed by direction+filename. Updated from
+	// the native progress callback; an entry is cleared shortly after it hits
+	// 100% so completed transfers don't linger.
+	final Map<String, TransferProgress> _progress = {};
 	Timer?                          _pruner;
 	String?                         _saveDir;
 
@@ -61,6 +65,7 @@ class _HomeScreenState extends State<HomeScreen> {
 		});
 		widget.bridge.onIncomingRequest(_handleIncomingRequest);
 		widget.bridge.onTransferDeclined(_handleDeclined);
+		widget.bridge.onProgress(_handleProgress);
 		widget.bridge.startAdvertising(9000);
 		widget.bridge.startDiscovery(onFound: (d) {
 			setState(() {
@@ -144,6 +149,51 @@ class _HomeScreenState extends State<HomeScreen> {
 		if (!mounted) return;
 		ScaffoldMessenger.of(context).showSnackBar(
 			const SnackBar(content: Text('Peer declined the transfer.')),
+		);
+	}
+
+	void _handleProgress(TransferProgress p) {
+		if (!mounted) return;
+		final key = '${p.sending ? 'out' : 'in'}:${p.fileName}';
+		setState(() => _progress[key] = p);
+		if (p.done) {
+			// Let the bar show 100% briefly, then clear it.
+			Future.delayed(const Duration(milliseconds: 1500), () {
+				if (mounted) setState(() => _progress.remove(key));
+			});
+		}
+	}
+
+	Widget _progressCard(TransferProgress p) {
+		final pct  = (p.fraction * 100).toStringAsFixed(0);
+		final verb = p.sending ? 'Sending' : 'Receiving';
+		return Card(
+			child: Padding(
+				padding: const EdgeInsets.all(12),
+				child: Column(
+					crossAxisAlignment: CrossAxisAlignment.start,
+					children: [
+						Row(
+							children: [
+								Icon(p.sending ? Icons.upload : Icons.download, size: 20),
+								const SizedBox(width: 8),
+								Expanded(
+									child: Text('$verb ${p.fileName}',
+										overflow: TextOverflow.ellipsis,
+										style: const TextStyle(fontWeight: FontWeight.bold)),
+								),
+								Text('$pct%',
+									style: const TextStyle(fontFeatures: [FontFeature.tabularFigures()])),
+							],
+						),
+						const SizedBox(height: 8),
+						ClipRRect(
+							borderRadius: BorderRadius.circular(4),
+							child: LinearProgressIndicator(value: p.fraction, minHeight: 6),
+						),
+					],
+				),
+			),
 		);
 	}
 
@@ -285,6 +335,15 @@ class _HomeScreenState extends State<HomeScreen> {
 									),
 								),
 						),
+
+						// ── Active transfers ──────────────────────────────────────
+						if (_progress.isNotEmpty) ...[
+							const SizedBox(height: 16),
+							const Text('Transfers',
+								style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+							const SizedBox(height: 8),
+							..._progress.values.map(_progressCard),
+						],
 
 						const SizedBox(height: 24),
 

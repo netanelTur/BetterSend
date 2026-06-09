@@ -85,6 +85,15 @@ typedef _NativeConnectPeer = Void Function(
 typedef _DartConnectPeer   = void Function(
 	Pointer<Void>, Pointer<Utf8>, Pointer<NativeFunction<NativeConnectStatusCb>>);
 
+// C callback: void(*)(int dir, const char* peer, const char* name, long long done, long long total)
+//   dir: 0 = sending, 1 = receiving
+typedef NativeProgressCb = Void Function(
+	Int32, Pointer<Utf8>, Pointer<Utf8>, Int64, Int64);
+typedef _NativeSetProgressCb = Void Function(
+	Pointer<Void>, Pointer<NativeFunction<NativeProgressCb>>);
+typedef _DartSetProgressCb   = void Function(
+	Pointer<Void>, Pointer<NativeFunction<NativeProgressCb>>);
+
 typedef _NativeSetSaveDir = Void Function(Pointer<Void>, Pointer<Utf8>);
 typedef _DartSetSaveDir   = void Function(Pointer<Void>, Pointer<Utf8>);
 
@@ -106,6 +115,7 @@ final _setReqCb         = _lib.lookupFunction<_NativeSetReqCb,        _DartSetRe
 final _setDeclineCb     = _lib.lookupFunction<_NativeSetDeclineCb,    _DartSetDeclineCb>    ('bettersend_set_decline_callback');
 final _setSaveDir       = _lib.lookupFunction<_NativeSetSaveDir,      _DartSetSaveDir>      ('bettersend_set_save_dir');
 final _connectPeer      = _lib.lookupFunction<_NativeConnectPeer,    _DartConnectPeer>     ('bettersend_connect_peer');
+final _setProgressCb    = _lib.lookupFunction<_NativeSetProgressCb,  _DartSetProgressCb>   ('bettersend_set_progress_callback');
 final _freeCstr         = _lib.lookupFunction<_NativeFreeCstr,        _DartFreeCstr>        ('bettersend_free_cstr');
 
 // ── 4. BetterSendBridge ───────────────────────────────────────────────────────
@@ -121,6 +131,7 @@ class BetterSendBridge {
 	NativeCallable<NativeTransferReqCb>?      _requestCb;
 	NativeCallable<NativeTransferDeclineCb>?  _declineCb;
 	NativeCallable<NativeConnectStatusCb>?    _connectCb;
+	NativeCallable<NativeProgressCb>?         _progressCb;
 	// One completer per in-flight connect, keyed by peer name. The native
 	// status callback (status 2/3) resolves it; a Dart-side timer is the
 	// safety net so the UI spinner can never hang past _kConnectTimeout.
@@ -339,12 +350,38 @@ class BetterSendBridge {
 		_setDeclineCb(_handle, _declineCb!.nativeFunction);
 	}
 
+	/// Register a progress callback for in-flight file transfers (both
+	/// directions). Fires repeatedly (throttled to integer-percent in native)
+	/// until the transfer completes. The native layer heap-allocates the
+	/// strings; we own them and must call _freeCstr.
+	void onProgress(void Function(TransferProgress) cb) {
+		_progressCb?.close();
+		_progressCb = NativeCallable<NativeProgressCb>.listener(
+			(int dir, Pointer<Utf8> peerPtr, Pointer<Utf8> namePtr,
+			 int done, int total) {
+				final peer = peerPtr.cast<Utf8>().toDartString();
+				final name = namePtr.cast<Utf8>().toDartString();
+				_freeCstr(peerPtr.cast<Utf8>());
+				_freeCstr(namePtr.cast<Utf8>());
+				cb(TransferProgress(
+					sending:     dir == 0,
+					peerName:    peer,
+					fileName:    name,
+					transferred: done,
+					total:       total,
+				));
+			},
+		);
+		_setProgressCb(_handle, _progressCb!.nativeFunction);
+	}
+
 	void dispose() {
 		_discoveryCb?.close();
 		_transferCb?.close();
 		_requestCb?.close();
 		_declineCb?.close();
 		_connectCb?.close();
+		_progressCb?.close();
 		_destroy(_handle);
 	}
 }
@@ -409,3 +446,22 @@ class IncomingRequest {
 }
 
 enum TransferType { file, clipboard }
+
+/// Progress of an in-flight file transfer, emitted via [BetterSendBridge.onProgress].
+class TransferProgress {
+	final bool   sending;     // true = outgoing (we send), false = incoming
+	final String peerName;
+	final String fileName;
+	final int    transferred;
+	final int    total;
+	const TransferProgress({
+		required this.sending,
+		required this.peerName,
+		required this.fileName,
+		required this.transferred,
+		required this.total,
+	});
+
+	double get fraction => total > 0 ? (transferred / total).clamp(0.0, 1.0) : 0.0;
+	bool   get done     => total > 0 && transferred >= total;
+}

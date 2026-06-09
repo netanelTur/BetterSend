@@ -28,6 +28,15 @@ public:
 	// receive runs on background threads, the UI may set this concurrently.
 	void setSaveDirectory(std::string dir);
 
+	// Progress callback for in-flight FILE transfers (control/clipboard/Hello
+	// messages are too small to report). dir: 0 = sending, 1 = receiving.
+	// Invoked on the transport's background threads, throttled to integer-
+	// percent changes (≤101 calls per transfer). Set once before transfers.
+	using ProgressFn = std::function<void(int dir, const std::string& peer,
+	                                      const std::string& name,
+	                                      std::size_t done, std::size_t total)>;
+	void setProgressCallback(ProgressFn cb);
+
 private:
 	struct Impl;
 	std::unique_ptr<Impl> impl_;
@@ -35,6 +44,7 @@ private:
 	std::shared_ptr<IProtocol>      protocol_;
 	std::string                     localDeviceName_;
 	std::function<void(Transfer)>   onReceive_;
+	ProgressFn                      progressCb_;
 	std::thread                     ioThread_;
 	std::atomic<bool>               running_{false};
 
