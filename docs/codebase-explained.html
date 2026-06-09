@@ -2067,37 +2067,37 @@ nlohmann::json::<span class="fn">parse</span>(data[<span class="nm">4</span>..<s
   <div class="path">cpp_core/src/bettersend_api.cpp — Facade שמחבר discovery + handshake + broker + transport</div>
   <div class="code-rows">
     <div class="code-row">
-      <div class="code-cell"><span class="cm">// on BLE peer found:</span>
-#<span class="kw">if</span> _WIN32
-  <span class="fn">ensureHostStarted</span>(ctx, port):
-    broker-><span class="fn">startHost</span>() → {ssid, psk, hostIp}
-    handshake-><span class="fn">publishPayload</span>(<span class="ty">JSON</span>)
+      <div class="code-cell">// discovery onFound — SURFACES peers only (NO auto-join):
+#if _WIN32
+  ensureHostStarted(ctx, port)            // eager, on a detached thread:
+    broker->startHost() -> {ssid,psk,hostIp};  handshake->publishPayload(JSON)
 #elif __APPLE__
-  thread { <span class="fn">clientHandshakeAndJoin</span>(ctx, peer):
-    payload = handshake-><span class="fn">fetchPayload</span>(peerId, 20s)
-    parse {ssid, psk, hostIp, port}
-    handshake-><span class="fn">stop</span>()                  <span class="cm">// free BLE central; advertise + discovery stay</span>
-    peers[peer.name].ip = hostIp       <span class="cm">// half-paired: creds known, awaiting Hello</span>
-    <span class="ty">BS_LOG_WARN</span>(<span class="st">"Manual join: SSID '{ssid}' password '{psk}'"</span>)
-    <span class="kw">for</span> attempt in <span class="nm">1</span>..<span class="nm">60</span>:              <span class="cm">// ~2 min total</span>
-      <span class="fn">sleep</span>(2s)
-      <span class="kw">if</span> transport-><span class="fn">send</span>(hostIp, port, <span class="ty">Hello</span>):
-        peers[peer.name].helloSent = <span class="kw">true</span>
-        <span class="kw">return</span>
-  }
+  if (d.connectRequested)                 // Windows invited us (advert magic D1)
+    spawn clientHandshakeAndJoin(d, nullptr)
 #endif
 
-<span class="cm">// on TCP receive:</span>
-<span class="cm">//   Hello sentinel → record peer IP from socket, suppress callback</span>
-<span class="cm">//   File/Clipboard → forward to Dart via TransferReceivedCallback</span>
+// bettersend_connect_peer(handle, peerName, statusCb) — fired on a USER TAP:
+#if __APPLE__
+  spawn clientHandshakeAndJoin(peer, cb):
+    payload = handshake->fetchPayload(peerId, 20s);  parse {ssid,psk,hostIp,port}
+    handshake->stop()
+    broker->joinNetwork(ssid, psk)        // CoreWLAN open scan + associateToNetwork
+    for 1..10: sleep 1s; if transport->send(hostIp,port,Hello): helloSent=true; cb(2)
+#elif _WIN32                              // host can't join — invite the Mac instead
+  discovery->setConnectRequested(true);  poll peers[name].ip;  setConnectRequested(false)
+#endif
+// statusCb: 0 connecting -> 1 joined -> 2 ready -> (file picker), or 3 failed
 
-<span class="fn">bettersend_send_file</span>(handle, peerName, filePath):
-  ip = peers[peerName].ip   <span class="cm">// learned via GATT (mac) או Hello (win)</span>
-  transport-><span class="fn">send</span>(ip, kDefaultPort, <span class="ty">FileTransferable</span>{filePath})</div>
+// on TCP receive:  Hello sentinel -> record peer IP (+ alias to invited placeholder)
+//                  File / Clipboard -> forward to Dart
+
+bettersend_send_file(handle, peerName, filePath):
+  ip = peers[peerName].ip                 // learned via GATT (mac) / Hello (win)
+  transport->send(ip, kDefaultPort, FileTransferable{filePath})</div>
       <div class="anno-cell info">
-        <strong>זה הצינור — Path B (dogfood).</strong> Phase 1 tie-break ב-<code>#ifdef</code>: Windows = host always, macOS = client always. אחרי GATT handshake, המק לא מנסה <code>joinNetwork</code> יותר (CoreWLAN <code>scanForNetworksWithName:</code> תקוע על <code>"Resource busy"</code> בסיליקון של Apple באופן עקבי). במקום זה הוא: (1) שומר את ה-hotspot IP על <code>peersByName</code> כדי שה-UI יוכל לסמן peer כ"half-paired", (2) מציג בלוג את ה-SSID + סיסמה למשתמש להתחברות ידנית, (3) רץ בלולאה של 60 ניסיונות (פעם בשתי שניות) של שליחת Hello. ברגע ש-<code>transport-&gt;send</code> מצליח, Windows לומד את ה-IP של מק דרך <code>socket.remote_endpoint()</code> וצינור ההעברה פתוח. <code>ITransport::send</code> עכשיו מחזיר <code>bool</code> כדי לסמן הצלחה אמיתית של ה-connect+write.
+        <strong>הצינור — tap-to-connect סימטרי.</strong> Phase 1 tie-break ב-<code>#ifdef</code>: Windows = host תמיד (מרים hotspot + מפרסם GATT באופן eager), macOS = client (היחיד שיכול להצטרף ל-hotspot). <strong>discovery רק חושף peers — אין auto-join</strong> (נוסה, וגרם למירוץ עם ה-tap ולספינר תקוע). החיבור קורה רק בלחיצה דרך <code>bettersend_connect_peer</code>, שמריץ worker מנותק: <code>fetchPayload</code> (קריאת ה-credentials מ-GATT) → <code>broker-&gt;joinNetwork</code> (<code>MacWifiClientBroker</code>: open scan <code>scanForNetworksWithSSID:nil</code> + <code>associateToNetwork:</code> — לא התחברות ידנית) → לולאת Hello קצרה (10×1s). ההתקדמות מדווחת ב-<code>ConnectStatusCallback</code> (0 connecting → 1 joined → 2 ready, או 3 failed) ומניעה את הספינר ב-UI.
         <br/><br/>
-        <strong>Path A (NEHotspotConfiguration)</strong> יחליף את הלולאה הידנית — דורש entitlement <code>com.apple.developer.networking.HotspotConfiguration</code> + provisioning ב-Apple developer portal. עד אז: dogfood.
+        <strong>חיבור סימטרי (גם Windows יוזם):</strong> Windows הוא ה-host ולא יכול להצטרף בעצמו, אז כשהמשתמש בו לוחץ על המק הוא משדר connect-request ב-advert (<code>kBleConnectMagicBytes</code> — הבייט האחרון D1 במקום D0) דרך <code>setConnectRequested</code>; ה-discovery של המק רואה את הסימן ומפעיל את אותו <code>clientHandshakeAndJoin</code>. <code>ITransport::send</code> מחזיר <code>bool</code> (הצלחת connect+write) — לולאת ה-Hello קוראת אותו. Windows לומד את ה-IP של המק מה-Hello דרך <code>socket.remote_endpoint()</code>; כשהמק מופיע כ-placeholder סינתטי, ה-IP עושה alias לשם ה-placeholder כדי שגם השליחה תעבוד.
       </div>
     </div>
   </div>
@@ -2201,55 +2201,44 @@ entry.lastEmit = now;
   <span class="kw">if</span> (delegate_.wantAdvertise &amp;&amp; peripheral.state == <span class="ty">PoweredOn</span>) <span class="fn">kickAdvertise</span>();
 }
 
-<span class="cm">// bettersend_api.cpp clientHandshakeAndJoin (Path B):</span>
-<span class="cm">// — does NOT call pauseScan / pauseAdvertise / joinNetwork.</span>
-<span class="cm">// The Wi-Fi join is moved to the user (manual selection of the host</span>
-<span class="cm">// hotspot from the macOS Wi-Fi menu); the BLE roles keep running so the</span>
-<span class="cm">// peer stays visible across the join window, and the only thing keeping</span>
-<span class="cm">// the radio active is harmless to the *user-driven* Wi-Fi association.</span>
-ctx.handshake-&gt;<span class="fn">stop</span>();        <span class="cm">// free the GATT central, advertise + discovery stay up</span>
-peers[peer.name].ip = hostIp; <span class="cm">// cache hotspot IP, helloSent still false</span>
-loop kHelloMaxAttempts times every kHelloRetrySec:
-  <span class="kw">if</span> transport-&gt;<span class="fn">send</span>(hostIp, port, <span class="ty">Hello</span>) → <span class="kw">set</span> helloSent=<span class="kw">true</span>, <span class="kw">return</span></div>
+// CURRENT STATUS: these four hooks are NOT called by the connect flow.
+// We deliberately DON'T silence BLE around the CoreWLAN scan — joinNetwork
+// uses scanForNetworksWithSSID:nil (open scan), which works fine with BLE
+// running. They remain as no-op-able IDiscovery hooks for future pairs that
+// might need to free the shared radio.</div>
       <div class="anno-cell info">
-        <strong>היסטוריה:</strong> Mac BT ו-Wi-Fi חולקים אנטנה אחת בסיליקון של Apple. אנחנו ניסינו לסגור את ה-BLE לחלוטין (<code>stopScan</code> + <code>stopAdvertising</code> → <code>nil</code> ל-<code>CBCentralManager</code>/<code>CBPeripheralManager</code> + 4s sleep) כדי לתת ל-CoreWLAN ל-<code>scanForNetworksWithName:</code> בלי <code>"Resource busy"</code>. <em>זה לא עזר.</em> ה-root cause הוא לא יריבות BLE×Wi-Fi — זה <code>scanForNetworksWithName:</code> עצמו, API שאפל הפסיקה לתחזק עוד לפני macOS 11.
+        <strong>היסטוריה + סטטוס:</strong> Mac BT ו-Wi-Fi חולקים אנטנה בסיליקון של Apple, אז בעבר ניסינו לסגור BLE לגמרי לפני ה-join (<code>stopScan</code> + <code>stopAdvertising</code> → <code>nil</code> ל-<code>CBCentralManager</code>/<code>CBPeripheralManager</code> + 4s sleep). <em>זה לא עזר ואף היה מקור ללולאות באג.</em> ה-join עובד דרך <strong>open scan</strong> (<code>scanForNetworksWithSSID:nil</code>) שרץ מצוין במקביל ל-BLE; ה-<code>"Resource busy"</code> המקורי היה rate-limit של airportd + ה-API הישן <code>scanForNetworksWithName:</code>, לא יריבות אנטנה.
         <br/><br/>
-        <strong>החלטה (2026-06-07):</strong> Path B מבטל את הקריאות ל-<code>joinNetwork</code> וגם את ה-<code>pause*</code> מ-<code>clientHandshakeAndJoin</code>. ה-virtuals נשארים ב-<code>IDiscovery</code> וב-Mac impl (stop/start בלבד, ללא nil-out) — Path A (NEHotspotConfiguration) ינצל את אותו hook כשהוא יוצא בלי לגעת ב-API.
+        <strong>לכן ארבעת ה-hooks האלה כרגע לא בשימוש</strong> — נשארים כ-virtuals עם default no-op ב-<code>IDiscovery</code> + מימוש Mac (stop/start בלבד, ללא nil-out) לזוגות עתידיים שאולי יצטרכו לשחרר את הרדיו. הם לא נקראים מ-<code>clientHandshakeAndJoin</code>.
       </div>
     </div>
   </div>
 </div>
 
 <div id="cooldown" class="file-section">
-  <h2>Handshake Cooldown</h2>
-  <div class="path">cpp_core/src/bettersend_api.cpp + include/Constants.h — מניעת לולאה של retry על כשלון join</div>
+  <h2>Connect guards — attemptInFlight / helloSent</h2>
+  <div class="path">cpp_core/src/bettersend_api.cpp + include/Constants.h — מניעת join כפול בלי auto-join</div>
   <div class="code-rows">
     <div class="code-row">
-      <div class="code-cell"><span class="cm">// Constants.h</span>
-<span class="kw">inline</span> <span class="kw">constexpr</span> <span class="kw">int</span> kPeerHeartbeatSec = <span class="nm">2</span>;   <span class="cm">// throttle per peer</span>
-<span class="kw">inline</span> <span class="kw">constexpr</span> <span class="kw">int</span> kPeerStaleSec     = <span class="nm">10</span>;  <span class="cm">// prune from UI</span>
-<span class="kw">inline</span> <span class="kw">constexpr</span> <span class="kw">int</span> kPeerRetrySec     = <span class="nm">30</span>;  <span class="cm">// handshake retry cooldown</span>
+      <div class="code-cell">// Constants.h
+inline constexpr int kPeerHeartbeatSec  = 2;   // surface each peer at most every 2s
+inline constexpr int kPeerStaleSec      = 10;  // prune from UI after 10s unseen
+inline constexpr int kConnectTimeoutSec = 25;  // connect spinner / Windows-invite deadline
+// kPeerRetrySec is now vestigial — auto-join (its only user) was removed
 
-<span class="cm">// PeerInfo additions</span>
-<span class="kw">bool</span>                                  helloSent{<span class="kw">false</span>};
-<span class="kw">bool</span>                                  attemptInFlight{<span class="kw">false</span>};
-<span class="ty">std</span>::chrono::steady_clock::time_point lastAttempt{};
+// PeerInfo guards (no lastAttempt anymore)
+bool helloSent{false};        // Hello round-trip succeeded → reachable
+bool attemptInFlight{false};  // a connect is currently running
 
-<span class="cm">// discovery callback (Mac):</span>
-<span class="kw">bool</span> shouldSpawn = <span class="kw">false</span>;
-{ lock peersMu;
-  <span class="kw">auto</span>&amp; info = ctx-&gt;peersByName[d.name];
-  <span class="kw">if</span> (!info.helloSent &amp;&amp; !info.attemptInFlight &amp;&amp;
-      (info.lastAttempt == {} ||
-       now - info.lastAttempt &gt;= <span class="fn">seconds</span>(kPeerRetrySec))) {
-    info.attemptInFlight = <span class="kw">true</span>;
-    info.lastAttempt = now;
-    shouldSpawn = <span class="kw">true</span>;
-  }
-}
-<span class="kw">if</span> (shouldSpawn) <span class="fn">spawnThread</span>(clientHandshakeAndJoin);</div>
+// bettersend_connect_peer (Mac) — on a USER TAP (or a Windows connect-request):
+{ lock peersMu; auto&amp; info = peersByName[name];
+  if (info.helloSent &amp;&amp; !info.ip.empty()) already = true;          // re-send fast path
+  else if (!info.attemptInFlight) { info.attemptInFlight = true; spawn = true; } }
+if (already)    cb(2);
+else if (spawn) thread { clientHandshakeAndJoin(peer, cb); attemptInFlight = false; }
+else            poll helloSent -> cb(2), or timeout -> cb(3);  // join already running</div>
       <div class="anno-cell info">
-        <strong>הבעיה:</strong> BLE discovery מאשר peer כל 2s. בלי gating, כל אירוע פתח clientHandshakeAndJoin חדש; שני handshakes במקביל יצרו תור של scans ב-CoreWLAN וגרמו ל-"Resource busy" infinite loop. <strong>התיקון:</strong> per-peer flags — `attemptInFlight` בזמן ריצה, `lastAttempt` ל-cooldown 30s. אם handshake נכשל, נמתין 30s לפני ניסיון נוסף; אם הצליח (`helloSent=true`), לא מנסים שוב בכלל באותו session.
+        <strong>שמירה מפני join כפול.</strong> אין יותר auto-join (הוסר — ראה סקשן <em>Connect — tap-to-connect</em>), אז אין צורך ב-cooldown לפי זמן (<code>kPeerRetrySec</code> נשאר אבל לא בשימוש). שני הדגלים ב-<code>PeerInfo</code>: <code>attemptInFlight</code> דולק בזמן שחיבור רץ, <code>helloSent</code> דולק אחרי שה-Hello עבר. ב-<code>bettersend_connect_peer</code>: אם כבר מחובר → <code>cb(2)</code> מיד; אם אף join לא רץ → spawn עם ה-callback; אם join <em>כבר</em> רץ (לחיצה חוזרת או הזמנה מ-Windows) → <strong>poll על <code>helloSent</code> במקום no-op</strong>, כדי שהספינר לעולם לא ייתקע (זה היה מקור ה-hang הקודם, כשה-auto-join עם <code>cb=nullptr</code> התנגש עם ה-tap). יחד עם de-dup לפי שם ב-Dart — מונע שני joins במקביל.
       </div>
     </div>
   </div>
