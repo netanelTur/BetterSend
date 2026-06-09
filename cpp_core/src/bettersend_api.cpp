@@ -67,7 +67,6 @@ struct PeerInfo {
 	int                                   port{kDefaultPort};
 	bool                                  helloSent{false};       // Mac: did we send our Hello?
 	bool                                  attemptInFlight{false}; // Mac: a connect is in progress
-	std::chrono::steady_clock::time_point lastAttempt{};          // Mac: auto-join cooldown anchor
 };
 
 // Pending outbound transfer — sender waits for the peer's Accept/Decline
@@ -523,41 +522,14 @@ void bettersend_start_discovery(void* handle, DeviceFoundCallback onFound) {
 				if (info.port == 0) info.port = d.port;
 			}
 
-			// Phase 1 tie-break — each platform takes its fixed role on peer
-			// sight. Windows brings its host up eagerly (idempotent retry here
-			// + the detached eager worker below). The Mac AUTO-JOINS the host's
-			// hotspot the moment it sees a peer — Windows cannot initiate the
-			// Wi-Fi join (only the Mac can), so without auto-join a Windows user
-			// who taps the Mac waits forever for a Hello that never comes. This
-			// is the documented working model; tap-to-connect (bettersend_
-			// connect_peer) stays as a manual retry / "ensure connected" path.
-			// The cooldown + attemptInFlight + helloSent guards (shared via
-			// peersByName) keep auto-join and any tap from racing a double-join.
+			// Phase 1: discovery only SURFACES peers. The Mac no longer
+			// auto-joins on sight — the user taps a specific peer to connect
+			// (bettersend_connect_peer). That disambiguates between multiple
+			// visible hosts AND never races a tap (auto-join + tap both driving
+			// the join was the cause of the connect hang). Windows still brings
+			// its host up eagerly (idempotent retry here + the detached worker).
 #if defined(_WIN32)
 			BetterSend::ensureHostStarted(*ctx, BetterSend::kDefaultPort);
-#elif defined(__APPLE__)
-			bool shouldSpawn = false;
-			{
-				std::lock_guard lock(ctx->peersMu);
-				auto& info = ctx->peersByName[d.name];
-				const auto now = std::chrono::steady_clock::now();
-				const bool inCooldown =
-					info.lastAttempt.time_since_epoch().count() != 0 &&
-					now - info.lastAttempt < std::chrono::seconds(BetterSend::kPeerRetrySec);
-				if (!info.helloSent && !info.attemptInFlight && !inCooldown) {
-					info.attemptInFlight = true;
-					info.lastAttempt     = now;
-					shouldSpawn          = true;
-				}
-			}
-			if (shouldSpawn) {
-				BetterSend::Device snap = d;
-				std::thread([ctx, snap]() mutable {
-					BetterSend::clientHandshakeAndJoin(*ctx, snap, nullptr);
-					std::lock_guard lock(ctx->peersMu);
-					ctx->peersByName[snap.name].attemptInFlight = false;
-				}).detach();
-			}
 #endif
 
 			if (onFound) {
@@ -633,11 +605,13 @@ void bettersend_connect_peer(void* handle, const char* peerName,
 		peer.port = BetterSend::kDefaultPort;
 		bool already = false;
 		bool spawn   = false;
+		bool unknown = false;
 		{
 			std::lock_guard lock(ctx->peersMu);
 			auto it = ctx->peersByName.find(name);
 			if (it == ctx->peersByName.end()) {
 				BS_LOG_ERROR("API", "connect_peer: unknown peer '{}'", name);
+				unknown = true;
 			} else {
 				peer.ip   = it->second.peerId;   // "ble:<id>" the GATT read needs
 				peer.port = it->second.port ? it->second.port
@@ -649,6 +623,10 @@ void bettersend_connect_peer(void* handle, const char* peerName,
 					spawn = true;
 				}
 			}
+		}
+		if (unknown) {
+			if (cb) cb(BetterSend::heapCopy(name), 3);  // never leave the spinner hanging
+			return;
 		}
 		if (already) {
 			if (cb) cb(BetterSend::heapCopy(name), 2);

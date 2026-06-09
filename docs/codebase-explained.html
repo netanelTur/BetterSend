@@ -481,7 +481,7 @@
     <span style="background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;">Future — Cloud Room</span>
   </div>
   <div class="meta">
-    <span>עדכון אחרון: 2026-06-09 (Mac auto-join שוחזר — Windows לא יכול ליזום את ה-join, אז המק מצטרף אוטומטית ל-hotspot ב-peer-sight [revert של חצי ה-connect מ-e14a5ae]; tap-to-connect נשאר כ-retry ידני. + Double-card collapse בצד Flutter: כרטיס routable [Hello, IPv4 של hotspot] גובר על placeholder ה-BLE [BetterSend-&lt;hex&gt;] עם guard חי + liveness proxy. ניקוי: include מת + תיעוד FromBluetoothAddressAsync ישן.)</span>
+    <span>עדכון אחרון: 2026-06-09 (auto-join הוסר שוב — הוא התנגש עם ה-tap [auto-join עם cb=nullptr → connect_peer לא ירה callback → ספינר נתקע 25s → "לא מתחבר"]. חזרה ל-tap-to-connect בלבד; connect_peer יורה cb(3) על peer לא מוכר כדי שהספינר לא ייתקע. מודל Phase 1: רק המק מצטרף ל-hotspot → המק לוחץ קודם, אחר כך שני הכיוונים. UX סימטרי [Windows יוזם] = Step 2 עתידי [trigger דרך advert]. Double-card collapse בצד Flutter נשאר.)</span>
     <span>עדכון קודם: 2026-06-09 (תוקן באג פריסה בעמודת ההסברים; הושלם תיעוד לקבצים שחסרו — Device.h, Logger.h, IClipboard.h, CMakeLists.txt, בדיקות GTest, transfer_screen.dart, device_list_screen.dart; תוקנו קישורי TOC שבורים)</span>
     <span>עדכון קודם: 2026-06-09 (תיקון עיצוב — sections מ-IConnectionBroker.h ואילך; מיזוג 0a3e58b: שם placeholder ל-Windows כשאין LocalName + ביטול duty-cycle של BLE)</span>
     <span>שלב פעיל: Phase 1 — צינור: BLE discovery → Windows מקים hotspot (eager) → המק עושה auto-join ב-peer-sight (GATT → joinNetwork → Hello); tap = ensure-connected + send. Control plane של request/accept/decline פעיל.</span>
