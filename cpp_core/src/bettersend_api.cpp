@@ -108,6 +108,12 @@ struct BetterSendContext {
 
 	std::mutex                                          peersMu;
 	std::unordered_map<std::string, PeerInfo>           peersByName;
+	// Windows: the (possibly synthetic) peer name the user tapped and is
+	// currently inviting. The Mac's Hello arrives under the Mac's REAL device
+	// name, not this placeholder, so while an invite is active the Hello
+	// interceptor aliases the discovered IP onto this name too — otherwise the
+	// connect poll and the file send key the wrong name. Guarded by peersMu.
+	std::string                                         pendingInviteName;
 
 	std::mutex                                          transfersMu;
 	std::unordered_map<std::string, PendingOutgoing>    pendingOutgoing;
@@ -365,6 +371,21 @@ void bettersend_start_server(void* handle, int port,
 						firstSighting = info.ip.empty();
 						info.ip   = t.senderIp;
 						info.port = BetterSend::kDefaultPort;
+						// If the host's user is mid-invite of a (synthetic)
+						// placeholder name, the Hello arrives under the Mac's
+						// REAL name — alias the IP onto the placeholder too so
+						// the connect poll and the file send both resolve.
+						if (!ctx->pendingInviteName.empty() &&
+						    ctx->pendingInviteName != t.senderName) {
+							auto& ph = ctx->peersByName[ctx->pendingInviteName];
+							if (ph.ip.empty()) {
+								ph.ip   = t.senderIp;
+								ph.port = BetterSend::kDefaultPort;
+								BS_LOG_INFO("API",
+									"Aliased Hello IP {} onto invited placeholder '{}'",
+									t.senderIp, ctx->pendingInviteName);
+							}
+						}
 					}
 					// Surface the peer to the Flutter UI even if the watcher
 					// never caught a BLE advert from this Mac — the Hello
@@ -699,6 +720,10 @@ void bettersend_connect_peer(void* handle, const char* peerName,
 				}
 			}
 			if (cb) cb(BetterSend::heapCopy(name), 0);   // connecting
+			{
+				std::lock_guard lock(ctx->peersMu);
+				ctx->pendingInviteName = name;   // alias the Mac's Hello onto this
+			}
 			ctx->discovery->setConnectRequested(true);
 			bool ok = false;
 			for (int i = 0; i < BetterSend::kConnectTimeoutSec; ++i) {
@@ -711,6 +736,10 @@ void bettersend_connect_peer(void* handle, const char* peerName,
 				}
 			}
 			ctx->discovery->setConnectRequested(false);
+			{
+				std::lock_guard lock(ctx->peersMu);
+				ctx->pendingInviteName.clear();
+			}
 			if (!ok) {
 				BS_LOG_ERROR("API", "connect_peer: '{}' never reachable (no Hello)", name);
 			}

@@ -396,7 +396,13 @@ std::unique_ptr<IDiscovery> makeDiscovery() {
 		// advert that carries our ServiceUUID without a LocalName, once via
 		// the BluetoothLEAdvertisementPublisher with our ManufacturerData).
 		NSString* localName = advertisementData[CBAdvertisementDataLocalNameKey];
-		if (localName.length > 0) name = std::string(localName.UTF8String);
+		if (localName.length > 0) {
+			name = std::string(localName.UTF8String);
+			// DIAGNOSTIC: which advert channel surfaced this peer. The connect-
+			// request flag rides ONLY on Path B (ManufacturerData); if a peer is
+			// only ever seen via Path A (ServiceUUID), the flag never reaches us.
+			BS_LOG_DEBUG(kComponent, "Advert path A (ServiceUUID): peer='{}'", name);
+		}
 	}
 
 	// Path B — Windows peer: ManufacturerData carries [0xFF 0xFF][magic][name].
@@ -405,6 +411,10 @@ std::unique_ptr<IDiscovery> makeDiscovery() {
 	if (name.empty()) {
 		NSData* mfgData = advertisementData[CBAdvertisementDataManufacturerDataKey];
 		name = extractWindowsPeerName(mfgData, connectRequested);
+		if (!name.empty()) {
+			BS_LOG_DEBUG(kComponent, "Advert path B (ManufacturerData): peer='{}' connectReq={}",
+				name, connectRequested);
+		}
 	}
 
 	if (name.empty()) return; // neither signature — not a BetterSend peer

@@ -132,52 +132,42 @@ public:
 	void startAdvertising(const std::string& deviceName, int /*port*/) override {
 		BS_LOG_INFO(kComponent, "BLE advertise: name='{}' companyId={:#06x}",
 			deviceName, kBleCompanyId);
+		advertName_ = deviceName;   // kept so setConnectRequested can re-advertise
+		startPublisher(connectRequested_.load());
+	}
 
-		advertName_ = deviceName;   // kept so setConnectRequested can republish
+	// Host-side connect invite: re-advertise with the connect-request magic so
+	// the Mac (the only side that can join the hotspot) starts the join. Called
+	// true when the Windows user taps a peer, false once reachable / on timeout.
+	void setConnectRequested(bool requested) override {
+		connectRequested_.store(requested);
+		if (!advertising_.load()) return;
+		startPublisher(requested);
+		BS_LOG_INFO(kComponent, "Advertise connectRequested={}", requested);
+	}
+
+	// (Re)start advertising on a FRESH publisher. WinRT's Stop() is async, so
+	// reconfiguring + Start()-ing the SAME publisher mid-stop ABORTS it
+	// (observed live: status=4 Aborted, advert silently dead — which broke the
+	// connect-request invite entirely). A brand-new publisher object each time
+	// sidesteps that; the old one's Stop is fire-and-forget. Keeps the
+	// ManufacturerData inside the 31-byte legacy advert budget.
+	void startPublisher(bool connectRequested) {
+		if (publisher_) { try { publisher_.Stop(); } catch (...) {} }
 		publisher_ = winrt_btle::BluetoothLEAdvertisementPublisher();
 		auto adv = publisher_.Advertisement();
-
-		// Pack [magic][name] into ManufacturerData. Keeps us inside the 31-byte
-		// legacy advertisement budget even with the auto-added AD Flags structure.
 		winrt_btle::BluetoothLEManufacturerData mfg;
 		mfg.CompanyId(kBleCompanyId);
-		mfg.Data(makeBetterSendPayload(deviceName, connectRequested_.load()));
+		mfg.Data(makeBetterSendPayload(advertName_, connectRequested));
 		adv.ManufacturerData().Append(mfg);
-
 		publisher_.StatusChanged([this](auto&&, auto const& args) {
-			auto status = args.Status();
-			BS_LOG_INFO(kComponent, "Advertise status: {}", static_cast<int>(status));
+			BS_LOG_INFO(kComponent, "Advertise status: {}", static_cast<int>(args.Status()));
 		});
-
 		try {
 			publisher_.Start();
 			advertising_.store(true);
 		} catch (const winrt::hresult_error& e) {
 			BS_LOG_ERROR(kComponent, "Advertise Start failed: {:#x} — {}",
-				static_cast<uint32_t>(e.code().value),
-				hstringToStdString(e.message()));
-		}
-	}
-
-	// Host-side connect invite: republish the advert with the connect-request
-	// magic so the Mac (the only side that can join the hotspot) starts the
-	// join. Called with true when the Windows user taps a peer, false once the
-	// peer is reachable or on timeout (see bettersend_connect_peer).
-	void setConnectRequested(bool requested) override {
-		connectRequested_.store(requested);
-		if (!advertising_.load()) return;
-		try {
-			publisher_.Stop();
-			auto adv = publisher_.Advertisement();
-			adv.ManufacturerData().Clear();
-			winrt_btle::BluetoothLEManufacturerData mfg;
-			mfg.CompanyId(kBleCompanyId);
-			mfg.Data(makeBetterSendPayload(advertName_, requested));
-			adv.ManufacturerData().Append(mfg);
-			publisher_.Start();
-			BS_LOG_INFO(kComponent, "Advertise connectRequested={}", requested);
-		} catch (const winrt::hresult_error& e) {
-			BS_LOG_ERROR(kComponent, "setConnectRequested republish failed: {:#x} — {}",
 				static_cast<uint32_t>(e.code().value),
 				hstringToStdString(e.message()));
 		}
