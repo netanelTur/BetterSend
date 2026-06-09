@@ -450,7 +450,7 @@
     <a href="#control-plane">Control Plane — Request/Accept/Decline</a>
     <a href="#flutter-runtime">Flutter UI — Dialog + Prune</a>
     <a href="#entitlements-runtime">Entitlements — File Picker</a>
-    <a href="#tap-connect">Tap-to-Connect (2026-06-08)</a>
+    <a href="#tap-connect">Connect — Mac auto-join (2026-06-09)</a>
     <a href="#ble-visibility">BLE visibility — placeholder name</a>
   </div>
 
@@ -481,14 +481,10 @@
     <span style="background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;">Future — Cloud Room</span>
   </div>
   <div class="meta">
-<<<<<<< HEAD
-    <span>עדכון אחרון: 2026-06-09 (Double-card collapse בצד Flutter — כרטיס routable [Hello, IPv4 של hotspot] גובר על placeholder ה-BLE [BetterSend-&lt;hex&gt;], עם guard חי + liveness proxy. ניקוי: הוסר fallback ה-FromBluetoothAddressAsync מהתיעוד + #include מת. מבוסס על מיזוג 0a3e58b: שם placeholder ל-Windows + ביטול duty-cycle. Tap-to-Connect: bettersend_connect_peer + ספינר.)</span>
-=======
-    <span>עדכון אחרון: 2026-06-09 (תוקן באג פריסה בעמודת ההסברים; הושלם תיעוד לקבצים שחסרו — Device.h, Logger.h, IClipboard.h, CMakeLists.txt, בדיקות GTest, transfer_screen.dart, device_list_screen.dart; תוקנו קישורי TOC שבורים)</span>
-    <span>עדכון קודם: 2026-06-09 (תיקון עיצוב — sections מ-IConnectionBroker.h ואילך: עיצוב כרטיס, צביעת תחביר, רקע קוד קרם; שופרה קריאות עמודת ההסברים)</span>
-    <span>עדכון קודם: 2026-06-08 (Tap-to-Connect — המק מתחבר ל-Wi-Fi רק בלחיצת משתמש; bettersend_connect_peer + ConnectStatusCallback + connectToPeer + ספינר; הוסר auto-join. Windows רואה את המק דרך שם placeholder כשאין LocalName; duty-cycle בוטל)</span>
->>>>>>> b340d709faef99d5a8ee612b6dc1df2933f6f7c0
-    <span>שלב פעיל: Phase 1 — צינור: BLE discovery (רק חושף peers) → המשתמש לוחץ על מכשיר → bettersend_connect_peer מריץ worker מנותק: GATT handshake → joinNetwork (CoreWLAN open scan + associate) → לולאת Hello → TCP. Control plane של request/accept/decline פעיל.</span>
+    <span>עדכון אחרון: 2026-06-09 (Mac auto-join שוחזר — Windows לא יכול ליזום את ה-join, אז המק מצטרף אוטומטית ל-hotspot ב-peer-sight [revert של חצי ה-connect מ-e14a5ae]; tap-to-connect נשאר כ-retry ידני. + Double-card collapse בצד Flutter: כרטיס routable [Hello, IPv4 של hotspot] גובר על placeholder ה-BLE [BetterSend-&lt;hex&gt;] עם guard חי + liveness proxy. ניקוי: include מת + תיעוד FromBluetoothAddressAsync ישן.)</span>
+    <span>עדכון קודם: 2026-06-09 (תוקן באג פריסה בעמודת ההסברים; הושלם תיעוד לקבצים שחסרו — Device.h, Logger.h, IClipboard.h, CMakeLists.txt, בדיקות GTest, transfer_screen.dart, device_list_screen.dart; תוקנו קישורי TOC שבורים)</span>
+    <span>עדכון קודם: 2026-06-09 (תיקון עיצוב — sections מ-IConnectionBroker.h ואילך; מיזוג 0a3e58b: שם placeholder ל-Windows כשאין LocalName + ביטול duty-cycle של BLE)</span>
+    <span>שלב פעיל: Phase 1 — צינור: BLE discovery → Windows מקים hotspot (eager) → המק עושה auto-join ב-peer-sight (GATT → joinNetwork → Hello); tap = ensure-connected + send. Control plane של request/accept/decline פעיל.</span>
   </div>
 </div>
 
@@ -2383,25 +2379,29 @@ transport-&gt;<span class="fn">send</span>(ip, port, <span class="ty">TextTransf
 
 <!-- ── Tap-to-Connect — חיבור Wi-Fi לפי בחירת משתמש (2026-06-08) ────────────── -->
 <div id="tap-connect" class="file-section">
-  <h2>Tap-to-Connect — חיבור Wi-Fi לפי לחיצת משתמש</h2>
-  <div class="path">cpp_core/src/bettersend_api.cpp — discovery כבר לא מבצע auto-join; ה-join קורה רק ב-bettersend_connect_peer</div>
+  <h2>Connect — Mac auto-join ב-peer-sight (+ tap כ-retry)</h2>
+  <div class="path">cpp_core/src/bettersend_api.cpp — discovery מבצע auto-join ב-peer-sight; bettersend_connect_peer הוא retry ידני / ensure-connected</div>
   <div class="code-rows">
     <div class="code-row">
-      <div class="code-cell"><span class="cm">// discovery onFound: Mac no longer auto-joins. Windows host stays eager.</span>
+      <div class="code-cell"><span class="cm">// discovery onFound: Windows host eager; Mac AUTO-JOINS on peer-sight.</span>
 #<span class="kw">if</span> <span class="fn">defined</span>(_WIN32)
     <span class="fn">ensureHostStarted</span>(*ctx, kDefaultPort);
+#<span class="kw">elif</span> <span class="fn">defined</span>(__APPLE__)
+    <span class="cm">// guards: !helloSent && !attemptInFlight && cooldown(kPeerRetrySec)</span>
+    <span class="kw">if</span> (shouldSpawn)
+        std::<span class="ty">thread</span>([&]{ <span class="fn">clientHandshakeAndJoin</span>(*ctx, snap, <span class="kw">nullptr</span>); }).<span class="fn">detach</span>();
 #endif
 
-<span class="cm">// New C surface — fired ONLY on a user tap:</span>
+<span class="cm">// bettersend_connect_peer — manual retry / ensure-connected (a tap):</span>
 <span class="kw">using</span> <span class="ty">ConnectStatusCallback</span> = <span class="kw">void</span>(*)(<span class="kw">const</span> <span class="kw">char</span>* peerName, <span class="kw">int</span> status);
 <span class="cm">//   0=connecting  1=joined  2=ready (reachable)  3=failed</span>
 <span class="kw">void</span> <span class="fn">bettersend_connect_peer</span>(handle, peerName, cb);
-<span class="cm">//   Mac:     detached worker -> clientHandshakeAndJoin(ctx, peer, cb)</span>
-<span class="cm">//            GATT read {ssid,psk,hostIp,port} -> joinNetwork -> Hello</span>
+<span class="cm">//   Mac:     already connected? cb(2) fast-path. else detached</span>
+<span class="cm">//            clientHandshakeAndJoin(ctx, peer, cb): GATT -> join -> Hello</span>
 <span class="cm">//   Windows: poll peersByName[name].ip (set by the Mac's Hello)</span>
 <span class="cm">//            cb(2) when reachable, cb(3) after kConnectTimeoutSec (25s)</span></div>
       <div class="anno-cell info">
-        <strong>למה שינינו (2026-06-08):</strong> קודם המק היה מתחבר אוטומטית לרשת של ה-peer הראשון שראה ב-BLE. עם יותר ממכשיר אחד זה גרם לכאוס — המק לא ידע לאיזו רשת להתחבר, ולעיתים ניסה להתחבר לפני שה-hotspot של Windows בכלל שידר, ונפל ללולאת retry איטית. <strong>הפתרון:</strong> ה-join קורה עכשיו <em>רק</em> כשהמשתמש לוחץ על מכשיר. <code>bettersend_connect_peer</code> מריץ worker מנותק (לא חוסם את ה-FFI thread, כי <code>joinNetwork</code>/<code>fetchPayload</code> נמשכים שניות), מדווח התקדמות ב-<code>ConnectStatusCallback</code>. הלחיצה היא התשובה ל"לאיזו רשת". זה בטוח עכשיו כי <code>a390e64</code> (eager host) + <code>6904aa8</code> (זיהוי מק דרך TCP Hello) שברו את ה-deadlock ש-§16 ב-failed-attempts תיעד (Windows כבר לא צריך לראות את המק ב-BLE).</div>
+        <strong>auto-join שוחזר (2026-06-09):</strong> ה-connect חצי של <code>e14a5ae</code> (tap-to-connect במקום auto-join) בוטל. הסיבה: Windows הוא ה-host ו<em>לא יכול</em> ליזום את ה-join של המק (רק המק מצטרף, דרך CoreWLAN) — אז בלי auto-join, משתמש Windows שלוחץ על המק מחכה לנצח ל-Hello שלא מגיע. עכשיו המק עושה <strong>auto-join על כל peer-sight</strong> ב-onFound (worker מנותק: GATT → <code>joinNetwork</code> → Hello), עם guards <code>helloSent</code>+<code>attemptInFlight</code>+cooldown(<code>kPeerRetrySec</code>) שמונעים הצפת joins. <code>bettersend_connect_peer</code> נשאר כ-<em>retry ידני / ensure-connected</em>: אם auto-join כבר חיבר — הלחיצה מחזירה <code>cb(2)</code> מיד; אחרת היא join חדש. ה-guards המשותפים מונעים מ-auto-join ולחיצה לרוץ במקביל (double-join). זה תואם את הלקח המתועד "auto-join הוא המודל העובד" (<code>failed-attempts.md</code> §16); ה-split של deferred-join — שהשאיר את המק על ה-Wi-Fi שלו לנצח עם scan רציף — הוא מה שגרם להרעבת ה-advertise, לא ה-auto-join עצמו.</div>
     </div>
     <div class="code-row">
       <div class="code-cell"><span class="cm">// MacWifiClientBroker.mm — joinNetwork retry tuning</span>

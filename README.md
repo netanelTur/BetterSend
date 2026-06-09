@@ -60,7 +60,7 @@ The same **BLE-discover → bring-up-network → TCP-transfer** pattern repeats 
 
 | Pair | Discovery | Bring-up | Transport |
 |------|-----------|----------|-----------|
-| **Mac ↔ Windows (Phase 1)** | BLE (SimpleBLE) | Windows starts Mobile Hotspot via WinRT; Mac joins via CoreWLAN **on user tap** | TCP over hotspot |
+| **Mac ↔ Windows (Phase 1)** | BLE (SimpleBLE) | Windows starts Mobile Hotspot via WinRT; Mac **auto-joins** via CoreWLAN on BLE peer-sight (tap = ensure-connected + send) | TCP over hotspot |
 | Apple ↔ Apple | Bonjour + AWDL | — (AWDL always-on) | TCP over AWDL |
 | Android ↔ Android | mDNS + Wi-Fi Direct | WifiP2pManager | TCP over Wi-Fi Direct |
 | iOS ↔ Android (Phase 2) | BLE | one side creates hotspot, other connects | TCP over hotspot |
@@ -93,7 +93,7 @@ flutter run -d windows
 ```
 **One-time:** after the first `flutter run`, copy `bettersend_core.dll` plus the three MinGW runtime DLLs (`libgcc_s_seh-1.dll`, `libstdc++-6.dll`, `libwinpthread-1.dll`) into `flutter_app/build/windows/x64/runner/Debug/`. TODO: a post-build CMake step to automate this, matching the Xcode build phase on macOS.
 
-> **Phase 1 end-to-end pipeline is wired**: BLE discovery (Windows + Mac, surfaces peers only) → user taps a device → BLE GATT credential handshake → Windows Mobile Hotspot bring-up (WinRT, eager) → Mac CoreWLAN join → TCP file transfer via Asio. Both sides run a TCP receive server on port 9000 and surface received files / clipboard via the `onReceive` FFI callback.
+> **Phase 1 end-to-end pipeline is wired**: BLE discovery (Windows + Mac) → Windows Mobile Hotspot bring-up (WinRT, eager) → Mac **auto-joins** on BLE peer-sight (GATT credential handshake → CoreWLAN join → Hello) → TCP file transfer via Asio. Both sides run a TCP receive server on port 9000 and surface received files / clipboard via the `onReceive` FFI callback. (Tapping a device is a manual "ensure-connected + send" retry, not the only way to connect.)
 >
 > **Send flow is gated by user consent.** When you press Send, the sender first transmits a `Request` control message; the receiver sees an "Incoming file" dialog with `Accept` / `Decline` buttons. The actual file bytes are pushed only after the receiver accepts. Control messages ride on the existing Clipboard wire format with a `"BS\t"` JSON prefix; no protocol changes.
 >
@@ -105,7 +105,7 @@ flutter run -d windows
 >
 > Windows side requires an active `InternetConnectionProfile` (any adapter, online or not) for `NetworkOperatorTetheringManager` to start the hotspot. Configure the hotspot SSID + passphrase once in Windows Settings → Network → Mobile Hotspot; BetterSend reads them via WinRT and publishes via GATT.
 >
-> **Tap to connect.** Discovery only *surfaces* nearby devices — the Mac no longer auto-joins. Tapping a device calls `bettersend_connect_peer`, which runs a detached worker (GATT read → `joinNetwork` → Hello) and reports progress via `ConnectStatusCallback` (`0` connecting → `1` joined → `2` ready, or `3` failed); the UI shows a "Connecting…" spinner until ready. This disambiguates which host's Wi-Fi to join when several are visible, and — because the Windows host has been beaconing for seconds by tap-time — a single CoreWLAN open scan finds the SSID and associates on attempt 1.
+> **Auto-join on peer-sight (+ tap to ensure-connected).** When the Mac discovers a Windows host over BLE it **auto-joins** that host's hotspot on a detached worker (GATT read → `joinNetwork` → Hello), guarded by `attemptInFlight` + `helloSent` + a `kPeerRetrySec` cooldown so repeated sightings don't hammer the join. This is required because Windows is the host and *cannot* initiate the Mac's Wi-Fi join — without auto-join, a Windows-initiated transfer to the Mac would wait forever for a Hello that never comes. Tapping a device still calls `bettersend_connect_peer`, which reports progress via `ConnectStatusCallback` (`0` connecting → `1` joined → `2` ready, or `3` failed) and drives the "Connecting…" spinner; if auto-join already connected, the tap returns ready immediately, otherwise it serves as a manual retry. The shared `peersByName` guards keep auto-join and a tap from racing a double-join.
 >
 > macOS has no public API to join Wi-Fi without scanning (`associateToNetwork:` needs a `CWNetwork*` from a scan; `NEHotspotConfiguration` is iOS-only). `MacWifiClientBroker` uses an open scan (`scanForNetworksWithSSID:nil`) + `associateToNetwork:`, with retry backoff `kJoinBackoffMs=8000` — airportd rate-limits back-to-back open scans in a ~5-6s window (`"Resource busy"`), so retries must clear that window. BLE is intentionally **not** silenced around the scan: the rate-limit persists even with the CB managers released, and the nil-out machinery was a prior bug-loop source.
 >
