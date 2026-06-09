@@ -64,6 +64,35 @@ class _HomeScreenState extends State<HomeScreen> {
 		widget.bridge.startAdvertising(9000);
 		widget.bridge.startDiscovery(onFound: (d) {
 			setState(() {
+				// Two discovery channels can surface the SAME physical Mac under
+				// different identities: BLE gives a synthetic placeholder
+				// ("BetterSend-<hex>", ip "ble:...") because CoreBluetooth on
+				// Apple silicon never sends Windows a usable LocalName; the TCP
+				// Hello (after the Mac joins the hotspot) gives the real device
+				// name with a routable hotspot IPv4. They can't be correlated
+				// (macOS hides its BLE address, the Hello carries no BLE token),
+				// and the list dedups by name, so both would show as two cards.
+				// Phase 1 has exactly one remote peer, so collapse on identity:
+				// a routable card supersedes any ble-only placeholder.
+				final routable = !d.ip.startsWith('ble:');
+				if (routable) {
+					// The Hello card is the only one that can actually send (the
+					// native send path needs a non-"ble:" ip; tapping the
+					// placeholder polls the wrong peer key and always times out).
+					// Drop the placeholder so only the sendable card remains.
+					_devices.removeWhere((e) => e.ip.startsWith('ble:'));
+				} else if (_devices.any((e) => !e.ip.startsWith('ble:'))) {
+					// A routable card already represents this peer. Don't re-add
+					// the placeholder; instead treat the ongoing BLE advert as a
+					// liveness proxy — the Hello fires only once on connect, so
+					// without this the routable card would go stale and prune
+					// mid-session. Live-derived guard, not a sticky flag: if the
+					// routable card later prunes, this branch stops matching and
+					// the placeholder is re-admitted, so reconnect self-heals.
+					final r = _devices.firstWhere((e) => !e.ip.startsWith('ble:'));
+					_lastSeen[r.name] = DateTime.now();
+					return;
+				}
 				_lastSeen[d.name] = DateTime.now();
 				if (!_devices.any((e) => e.name == d.name)) _devices.add(d);
 			});

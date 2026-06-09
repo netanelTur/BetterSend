@@ -434,7 +434,7 @@
     <span style="background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;">Future — Cloud Room</span>
   </div>
   <div class="meta">
-    <span>עדכון אחרון: 2026-06-08 (Tap-to-Connect — המק מתחבר ל-Wi-Fi רק בלחיצת משתמש; bettersend_connect_peer + ConnectStatusCallback + connectToPeer + ספינר; הוסר auto-join. Windows רואה את המק דרך שם placeholder כשאין LocalName; duty-cycle בוטל)</span>
+    <span>עדכון אחרון: 2026-06-09 (Double-card collapse בצד Flutter — כרטיס routable [Hello, IPv4 של hotspot] גובר על placeholder ה-BLE [BetterSend-&lt;hex&gt;], עם guard חי + liveness proxy. ניקוי: הוסר fallback ה-FromBluetoothAddressAsync מהתיעוד + #include מת. מבוסס על מיזוג 0a3e58b: שם placeholder ל-Windows + ביטול duty-cycle. Tap-to-Connect: bettersend_connect_peer + ספינר.)</span>
     <span>שלב פעיל: Phase 1 — צינור: BLE discovery (רק חושף peers) → המשתמש לוחץ על מכשיר → bettersend_connect_peer מריץ worker מנותק: GATT handshake → joinNetwork (CoreWLAN open scan + associate) → לולאת Hello → TCP. Control plane של request/accept/decline פעיל.</span>
   </div>
 </div>
@@ -1214,48 +1214,51 @@ watcher_.<span class="fn">Start</span>();</div>
     </div>
 
     <div class="code-row highlight">
-      <div class="code-cell"><span class="cm">// ניסיון 3 — בקשה אסינכרונית ל-Windows BT system cache</span>
-<span class="kw">auto</span> op = <span class="ty">BluetoothLEDevice</span>::<span class="fn">FromBluetoothAddressAsync</span>(addr);
-op.<span class="fn">Completed</span>([<span class="kw">this</span>, addr](<span class="kw">auto</span>&& sender, <span class="ty">AsyncStatus</span> status) {
-    <span class="kw">std::string</span> resolved;
-    <span class="kw">if</span> (status == <span class="ty">AsyncStatus</span>::Completed) {
-        <span class="kw">auto</span> device = sender.<span class="fn">GetResults</span>();
-        <span class="kw">if</span> (device != <span class="kw">nullptr</span>) resolved = <span class="fn">hstringToStdString</span>(device.<span class="fn">Name</span>());
+      <div class="code-cell"><span class="cm">// ניסיון 3 — שם סינתטי יציב (commit-then-reuse לפי כתובת)</span>
+{
+    <span class="kw">std::lock_guard</span> lock(committedMu_);
+    <span class="kw">auto</span> it = committedName_.<span class="fn">find</span>(addr);
+    <span class="kw">if</span> (it != committedName_.<span class="fn">end</span>()) {
+        name = it->second;                            <span class="cm">// reuse committed</span>
+    } <span class="kw">else</span> {
+        <span class="kw">if</span> (name.<span class="fn">empty</span>()) name = <span class="st">"BetterSend-"</span> + <span class="fn">lastFourHex</span>(addr);
+        committedName_[addr] = name;                  <span class="cm">// commit first name</span>
     }
-    <span class="cm">// "Bluetooth XX:XX:..." זה placeholder של Windows למכשירים לא-מוכרים</span>
-    <span class="kw">if</span> (resolved.<span class="fn">rfind</span>(<span class="st">"Bluetooth "</span>, 0) == 0) resolved.<span class="fn">clear</span>();
-    <span class="kw">if</span> (resolved.<span class="fn">empty</span>()) resolved = <span class="kw">std::string</span>(<span class="st">"Mac-"</span>) + <span class="fn">formatBdAddr</span>(addr);
-    <span class="fn">surfaceIfNew</span>(resolved, addr);
-});</div>
+}
+<span class="fn">surfaceIfNew</span>(name, addr);</div>
       <div class="anno-cell key">
         <div>
-          <strong>פתרון השם — ניסיון 3 + fallback.</strong> אם גם הcache לא תפס, מבקשים מ-Windows BT system cache (<a href="https://learn.microsoft.com/en-us/uwp/api/windows.devices.bluetooth.bluetoothledevice.frombluetoothaddressasync" target="_blank">FromBluetoothAddressAsync</a>): קריאה אסינכרונית שמחזירה את ה-friendly name ש-Windows שמרה ממכשירים paired או שראתה בעבר.
+          <strong>פתרון השם — שם סינתטי במקום cache lookup.</strong> ה-fallback הישן (<code>BluetoothLEDevice::FromBluetoothAddressAsync</code>) <strong>הוסר</strong>: מדידה אמפירית אצל Netanel הראתה שהוא מחזיר רק placeholder <code>"Bluetooth XX:.."</code> ל-BLE לא-מוכר, ולכן המק לא הופיע אף פעם ב-Windows. CoreBluetooth ב-Apple silicon לא מספק SCAN_RSP עם LocalName שמיש (ה-UUID ה-128-bit ממלא את ה-advert הראשי), אז אין שם אמיתי לקרוא ב-BLE.
           <br><br>
-          Windows מחזירה לעתים placeholder <code>"Bluetooth XX:XX:..."</code> לBLE לא-מוכר — לא יותר אינפורמטיבי מה-MAC לבד, אז דוחים. fallback סופי: <code>Mac-AA:BB:CC:DD:EE:FF</code>.
+          במקום זה: שם <strong>סינתטי יציב</strong> <code>BetterSend-&lt;4 hex אחרונים של הכתובת&gt;</code> (למשל <code>BetterSend-2B73</code>) כדי שה-peer ייראה ולחיץ. <code>committedName_</code> נועל את השם הראשון שנקבע לכל כתובת ומשתמש בו שוב — כך placeholder ושם אמיתי-מאוחר לא יוצרים שתי רשומות <em>בתוך</em> ערוץ ה-BLE.
           <br><br>
-          <strong>השם האמיתי</strong> של ה-Mac (למשל <code>Yonatans-MacBook.local</code>) יגיע ב-Phase 1.5 דרך GATT handshake — אחרי שייפתח BLE connection אמיתי, ניתן לקרוא את <a href="https://developer.bluetooth.org/gatt/characteristics/Pages/CharacteristicViewer.aspx?u=org.bluetooth.characteristic.gap.device_name.xml" target="_blank">GAP Device Name characteristic</a> ולקבל את ה-hostname.
+          <strong>השם האמיתי</strong> של ה-Mac מגיע אחר-כך דרך ה-TCP Hello (כשהמק מצטרף ל-hotspot ושולח Hello עם <code>localDeviceName</code>). ה-Hello מגיע בערוץ נפרד עם שם שונה ו-IP אמיתי, אז ה-collapse בין ה-placeholder ל-Hello נעשה בצד Flutter — ראה section <a href="#ble-visibility">BLE visibility</a>.
         </div>
       </div>
     </div>
 
     <div class="code-row highlight">
       <div class="code-cell"><span class="kw">void</span> <span class="fn">surfaceIfNew</span>(<span class="kw">const std::string</span>& name, <span class="ty">uint64_t</span> addr) {
+    <span class="kw">const std::string</span> key = <span class="fn">toLowerAscii</span>(name);
+    <span class="kw">const auto</span> now = std::chrono::steady_clock::<span class="fn">now</span>();
+    <span class="kw">std::string</span> canonical;
     {
         <span class="kw">std::lock_guard</span> lock(seenMu_);
-        <span class="kw">if</span> (!seenNames_.<span class="fn">insert</span>(name).second) <span class="kw">return</span>;  <span class="cm">// כבר ראינו את השם</span>
+        <span class="kw">auto</span>& entry = throttle_[key];
+        <span class="kw">if</span> (entry.canonical.<span class="fn">empty</span>()) entry.canonical = name;
+        <span class="kw">if</span> (entry.lastEmit ... < <span class="ty">kPeerHeartbeatSec</span>) <span class="kw">return</span>;  <span class="cm">// throttle</span>
+        entry.lastEmit = now;
+        canonical = entry.canonical;
     }
-    <span class="fn">onFound_</span>(<span class="ty">Device</span>{name, <span class="kw">std::string</span>(<span class="st">"ble:"</span>) + <span class="fn">formatBdAddr</span>(addr), kDefaultPort});
+    <span class="fn">onFound_</span>(<span class="ty">Device</span>{canonical, <span class="kw">std::string</span>(<span class="st">"ble:"</span>) + <span class="fn">formatBdAddr</span>(addr), kDefaultPort});
 }</div>
       <div class="anno-cell key">
         <div>
-          <strong>Dedup לפי שם, לא לפי MAC.</strong> BLE addresses מסתובבים לצרכי פרטיות:
-          <ul style="margin-top:6px;padding-right:24px;line-height:1.7;">
-            <li><a href="https://support.apple.com/guide/security/security-bluetooth-secfa9259f9c/web" target="_blank">Apple מסובבת את הכתובת</a> כל ~15 דקות אוטומטית</li>
-            <li>Windows publisher מקבל MAC חדש בכל restart של האפליקציה</li>
-          </ul>
-          לו היינו dedup-ים לפי MAC, אותו peer פיזי היה מופיע פעמיים-שלוש אחרי restart או אחרי השעה. השם הוא הדבר היציב לאורך session — וזה מה שאיכפת למשתמש לראות פעם אחת.
+          <strong>Throttle + dedup לפי שם (lowercase), לא לפי MAC.</strong> BLE adverts מגיעים 10–30 פעמים בשנייה; <code>throttle_</code> פולט event אחד לכל <code>kPeerHeartbeatSec</code> כדי שה-Flutter יוכל לזהות peers שותקים ולגזום אותם. ה-key הוא lowercase של השם, כך שאותו peer שמשדר תחת casings שונים קורס לרשומה אחת; ה-<code>canonical</code> שומר את ה-casing הראשון.
           <br><br>
-          ה-<code>Device.ip</code> נושא <code>"ble:&lt;MAC&gt;"</code> כ-placeholder — סמן ש-discovery זוהה אבל אין IP transport עדיין. הphase הבא (<code>IConnectionBroker</code>) יחליף ל-IPv4 אמיתי מהhotspot המקומי.
+          dedup לפי שם ולא לפי MAC כי BLE addresses מסתובבים לצרכי פרטיות (<a href="https://support.apple.com/guide/security/security-bluetooth-secfa9259f9c/web" target="_blank">Apple מסובבת כל ~15 דק׳</a>; Windows publisher מקבל MAC חדש בכל restart).
+          <br><br>
+          ה-<code>Device.ip</code> נושא <code>"ble:&lt;MAC&gt;"</code> כ-placeholder — סמן ש-discovery זוהה אבל אין IP transport עדיין. הצד הבא (Hello / <code>IConnectionBroker</code>) מביא IPv4 אמיתי מה-hotspot, וב-Flutter רשומת ה-IP האמיתי <strong>מחליפה</strong> את ה-placeholder (ראה <a href="#ble-visibility">BLE visibility</a>).
         </div>
       </div>
     </div>
@@ -2392,6 +2395,31 @@ onSend: () =&gt; _connectAndSend(device);
 surfaceIfNew(name, addr);</div>
       <div class="anno-cell info">
         <strong>מה קרה (2026-06-08, מדידה אמפירית אצל Netanel):</strong> ה-watcher של Windows <em>כן</em> שומע את ה-advert של המק (~71 התאמות ServiceUuid ב-100s, גם כשה-hotspot דולק) — אז ההשערה ש-eager-host (a390e64) הרס את ה-watcher <strong>הופרכה</strong>. הבעיה האמיתית: ה-advert מגיע <em>בלי שם</em> — ה-UUID ה-128-bit ממלא את ה-advert הראשי, ו-CoreBluetooth לא מספק SCAN_RSP עם LocalName שמיש (אפס scan-responses עם שם מהמק לאורך כל הסשן). הקוד הישן זרק peer בלי שם (ה-fallback של <code>BluetoothLEDevice</code> החזיר רק "Bluetooth XX:.." ונזרק) → המק לא הופיע אף פעם ב-Windows. <strong>התיקון:</strong> Windows ממציא שם יציב <code>BetterSend-&lt;4 hex אחרונים של הכתובת&gt;</code> כך שה-peer נראה ולחיץ; השם האמיתי מגיע אחר כך דרך ה-TCP Hello בחיבור הראשון. <code>commit-then-reuse</code> לפי כתובת מונע כפילות. <strong>"עבד ב-80b10a7" היה אשליה:</strong> ה-auto-join גרם למק להתחבר מיד וה-Hello הציף אותו ב-Windows; tap-to-connect הסיר את ה-auto-join, אז בלי לחיצה אין Hello ואין מה להציף. <strong>ה-duty-cycle (83ad0cd) בוטל</strong> — תקף את הצד הלא-נכון (advert של המק שמגיע ממילא) ואף עלול לאכול את ה-SCAN_RSP. הקוד נכתב בצד Windows; <strong>טעון build+אימות אצל Netanel.</strong></div>
+    </div>
+
+    <div class="code-row">
+      <div class="code-cell">// home_screen.dart — onFound: collapse placeholder ↔ Hello card
+final routable = !d.ip.startsWith('ble:');
+if (routable) {
+    // Hello card (hotspot IPv4) is authoritative & the only one that
+    // can send — drop the ble-only placeholder.
+    _devices.removeWhere((e) =&gt; e.ip.startsWith('ble:'));
+} else if (_devices.any((e) =&gt; !e.ip.startsWith('ble:'))) {
+    // routable card already shown: use the ongoing BLE advert as a
+    // liveness proxy (Hello fires once) and don't re-add the placeholder.
+    final r = _devices.firstWhere((e) =&gt; !e.ip.startsWith('ble:'));
+    _lastSeen[r.name] = DateTime.now();
+    return;
+}
+_lastSeen[d.name] = DateTime.now();
+if (!_devices.any((e) =&gt; e.name == d.name)) _devices.add(d);</div>
+      <div class="anno-cell key">
+        <div>
+          <strong>Collapse של ה-double-card (2026-06-09, צד Flutter).</strong> אותו מק פיזי מגיע בשני ערוצים עם שתי זהויות: BLE → placeholder <code>BetterSend-2B73</code> (ip <code>"ble:.."</code>), ו-TCP Hello → השם האמיתי + IPv4 של ה-hotspot. אי-אפשר לקשר ביניהם (macOS מסתיר את כתובת ה-BLE שלו; ה-Hello לא נושא token של BLE), והרשימה עושה dedup לפי שם — אז בלי טיפול נראות <em>שתי</em> כרטיסיות. ב-Phase 1 יש בדיוק peer מרוחק אחד, אז: <strong>כרטיס routable גובר על placeholder.</strong>
+          <br><br>
+          שתי דקויות שה-review תפס: (1) <strong>guard חי, לא דגל דביק</strong> — התנאי מחושב מחדש מ-<code>_devices</code> בכל callback, כך שאם הכרטיס ה-routable נגזם (המק התנתק) ה-placeholder חוזר ו-reconnect מרפא את עצמו. (2) <strong>liveness proxy</strong> — ה-Hello נורה <em>פעם אחת</em> בלבד (<code>firstSighting</code> ב-<code>bettersend_api.cpp</code>), אז בלי רענון הכרטיס ה-routable היה נגזם אחרי 10s באמצע סשן; ה-advert ה-BLE המתמשך מרענן את <code>_lastSeen</code> שלו במקום. בונוס: ה-placeholder ב-Windows היה <em>בלתי-לחיץ</em> בכלל (לחיצה עליו פונה ל-<code>peersByName["BetterSend-2B73"]</code> שאין לו IP → timeout status 3), אז ה-collapse הוא תיקון <em>נכונות</em>, לא רק קוסמטיקה.
+        </div>
+      </div>
     </div>
   </div>
 </div>
