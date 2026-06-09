@@ -60,7 +60,7 @@ The same **BLE-discover → bring-up-network → TCP-transfer** pattern repeats 
 
 | Pair | Discovery | Bring-up | Transport |
 |------|-----------|----------|-----------|
-| **Mac ↔ Windows (Phase 1)** | BLE (SimpleBLE) | Windows starts Mobile Hotspot via WinRT; Mac **auto-joins** via CoreWLAN on BLE peer-sight (tap = ensure-connected + send) | TCP over hotspot |
+| **Mac ↔ Windows (Phase 1)** | BLE (SimpleBLE) | Windows starts Mobile Hotspot via WinRT; Mac joins via CoreWLAN **on tap** (Mac tap joins directly; Windows tap broadcasts a connect-request marker so the Mac joins from its end) | TCP over hotspot |
 | Apple ↔ Apple | Bonjour + AWDL | — (AWDL always-on) | TCP over AWDL |
 | Android ↔ Android | mDNS + Wi-Fi Direct | WifiP2pManager | TCP over Wi-Fi Direct |
 | iOS ↔ Android (Phase 2) | BLE | one side creates hotspot, other connects | TCP over hotspot |
@@ -93,7 +93,7 @@ flutter run -d windows
 ```
 **One-time:** after the first `flutter run`, copy `bettersend_core.dll` plus the three MinGW runtime DLLs (`libgcc_s_seh-1.dll`, `libstdc++-6.dll`, `libwinpthread-1.dll`) into `flutter_app/build/windows/x64/runner/Debug/`. TODO: a post-build CMake step to automate this, matching the Xcode build phase on macOS.
 
-> **Phase 1 end-to-end pipeline is wired**: BLE discovery (Windows + Mac) → Windows Mobile Hotspot bring-up (WinRT, eager) → Mac **auto-joins** on BLE peer-sight (GATT credential handshake → CoreWLAN join → Hello) → TCP file transfer via Asio. Both sides run a TCP receive server on port 9000 and surface received files / clipboard via the `onReceive` FFI callback. (Tapping a device is a manual "ensure-connected + send" retry, not the only way to connect.)
+> **Phase 1 end-to-end pipeline is wired**: BLE discovery (Windows + Mac) → Windows Mobile Hotspot bring-up (WinRT, eager) → Mac joins on a user tap (GATT credential handshake → CoreWLAN join → Hello) → TCP file transfer via Asio. Connection is symmetric tap-to-connect — a Mac tap joins directly, a Windows tap broadcasts a connect-request marker so the Mac initiates the join (only the Mac can join the hotspot). Both sides run a TCP receive server on port 9000 and surface received files / clipboard via the `onReceive` FFI callback.
 >
 > **Send flow is gated by user consent.** When you press Send, the sender first transmits a `Request` control message; the receiver sees an "Incoming file" dialog with `Accept` / `Decline` buttons. The actual file bytes are pushed only after the receiver accepts. Control messages ride on the existing Clipboard wire format with a `"BS\t"` JSON prefix; no protocol changes.
 >

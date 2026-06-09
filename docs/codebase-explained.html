@@ -450,7 +450,7 @@
     <a href="#control-plane">Control Plane — Request/Accept/Decline</a>
     <a href="#flutter-runtime">Flutter UI — Dialog + Prune</a>
     <a href="#entitlements-runtime">Entitlements — File Picker</a>
-    <a href="#tap-connect">Connect — Mac auto-join (2026-06-09)</a>
+    <a href="#tap-connect">Connect — symmetric tap (2026-06-09)</a>
     <a href="#ble-visibility">BLE visibility — placeholder name</a>
   </div>
 
@@ -484,7 +484,7 @@
     <span>עדכון אחרון: 2026-06-09 (Step 2 — tap-to-connect סימטרי: גם Windows יכול ליזום. Windows-tap משדר connect-request ב-advert [kBleConnectMagicBytes D1 במקום D0] → המק מזהה ומצטרף → Hello → ה-poll של Windows רואה IP → ספינר נסגר. setConnectRequested ב-IDiscovery; Device.connectRequested; connect_peer של המק עושה poll במקום להיתקע. צד Windows טעון אימות אצל Netanel.)</span>
     <span>עדכון קודם: 2026-06-09 (תוקן באג פריסה בעמודת ההסברים; הושלם תיעוד לקבצים שחסרו — Device.h, Logger.h, IClipboard.h, CMakeLists.txt, בדיקות GTest, transfer_screen.dart, device_list_screen.dart; תוקנו קישורי TOC שבורים)</span>
     <span>עדכון קודם: 2026-06-09 (תיקון עיצוב — sections מ-IConnectionBroker.h ואילך; מיזוג 0a3e58b: שם placeholder ל-Windows כשאין LocalName + ביטול duty-cycle של BLE)</span>
-    <span>שלב פעיל: Phase 1 — צינור: BLE discovery → Windows מקים hotspot (eager) → המק עושה auto-join ב-peer-sight (GATT → joinNetwork → Hello); tap = ensure-connected + send. Control plane של request/accept/decline פעיל.</span>
+    <span>שלב פעיל: Phase 1 — צינור: BLE discovery → Windows מקים hotspot (eager) → tap-to-connect סימטרי (לחיצה במק = join ישיר; לחיצה ב-Windows משדרת connect-request ב-advert והמק מצטרף) → Hello → TCP. Control plane של request/accept/decline פעיל.</span>
   </div>
 </div>
 
@@ -2379,29 +2379,31 @@ transport-&gt;<span class="fn">send</span>(ip, port, <span class="ty">TextTransf
 
 <!-- ── Tap-to-Connect — חיבור Wi-Fi לפי בחירת משתמש (2026-06-08) ────────────── -->
 <div id="tap-connect" class="file-section">
-  <h2>Connect — Mac auto-join ב-peer-sight (+ tap כ-retry)</h2>
-  <div class="path">cpp_core/src/bettersend_api.cpp — discovery מבצע auto-join ב-peer-sight; bettersend_connect_peer הוא retry ידני / ensure-connected</div>
+  <h2>Connect — tap-to-connect סימטרי (בלי auto-join)</h2>
+  <div class="path">cpp_core/src/bettersend_api.cpp — לחיצה במק = join ישיר; לחיצה ב-Windows → advert של connect-request → המק מצטרף</div>
   <div class="code-rows">
     <div class="code-row">
-      <div class="code-cell"><span class="cm">// discovery onFound: Windows host eager; Mac AUTO-JOINS on peer-sight.</span>
+      <div class="code-cell"><span class="cm">// discovery onFound: Windows host eager; Mac joins ONLY when invited.</span>
 #<span class="kw">if</span> <span class="fn">defined</span>(_WIN32)
     <span class="fn">ensureHostStarted</span>(*ctx, kDefaultPort);
 #<span class="kw">elif</span> <span class="fn">defined</span>(__APPLE__)
-    <span class="cm">// guards: !helloSent && !attemptInFlight && cooldown(kPeerRetrySec)</span>
-    <span class="kw">if</span> (shouldSpawn)
+    <span class="cm">// d.connectRequested = host's advert carried the D1 marker (its user</span>
+    <span class="cm">// tapped us). Only the Mac can join, so start it. guards: !helloSent</span>
+    <span class="cm">// && !attemptInFlight (a burst of D1 adverts can't double-join).</span>
+    <span class="kw">if</span> (d.connectRequested && spawn)
         std::<span class="ty">thread</span>([&]{ <span class="fn">clientHandshakeAndJoin</span>(*ctx, snap, <span class="kw">nullptr</span>); }).<span class="fn">detach</span>();
 #endif
 
-<span class="cm">// bettersend_connect_peer — manual retry / ensure-connected (a tap):</span>
+<span class="cm">// bettersend_connect_peer — a tap on EITHER side:</span>
 <span class="kw">using</span> <span class="ty">ConnectStatusCallback</span> = <span class="kw">void</span>(*)(<span class="kw">const</span> <span class="kw">char</span>* peerName, <span class="kw">int</span> status);
 <span class="cm">//   0=connecting  1=joined  2=ready (reachable)  3=failed</span>
 <span class="kw">void</span> <span class="fn">bettersend_connect_peer</span>(handle, peerName, cb);
-<span class="cm">//   Mac:     already connected? cb(2) fast-path. else detached</span>
-<span class="cm">//            clientHandshakeAndJoin(ctx, peer, cb): GATT -> join -> Hello</span>
-<span class="cm">//   Windows: poll peersByName[name].ip (set by the Mac's Hello)</span>
-<span class="cm">//            cb(2) when reachable, cb(3) after kConnectTimeoutSec (25s)</span></div>
+<span class="cm">//   Mac:     tap -> clientHandshakeAndJoin(ctx,peer,cb): GATT->join->Hello</span>
+<span class="cm">//   Windows: tap -> setConnectRequested(true) [advert D0->D1], then poll</span>
+<span class="cm">//            peersByName[name].ip; cb(2)+revert D1->D0 when reachable,</span>
+<span class="cm">//            cb(3) after kConnectTimeoutSec (25s)</span></div>
       <div class="anno-cell info">
-        <strong>auto-join שוחזר (2026-06-09):</strong> ה-connect חצי של <code>e14a5ae</code> (tap-to-connect במקום auto-join) בוטל. הסיבה: Windows הוא ה-host ו<em>לא יכול</em> ליזום את ה-join של המק (רק המק מצטרף, דרך CoreWLAN) — אז בלי auto-join, משתמש Windows שלוחץ על המק מחכה לנצח ל-Hello שלא מגיע. עכשיו המק עושה <strong>auto-join על כל peer-sight</strong> ב-onFound (worker מנותק: GATT → <code>joinNetwork</code> → Hello), עם guards <code>helloSent</code>+<code>attemptInFlight</code>+cooldown(<code>kPeerRetrySec</code>) שמונעים הצפת joins. <code>bettersend_connect_peer</code> נשאר כ-<em>retry ידני / ensure-connected</em>: אם auto-join כבר חיבר — הלחיצה מחזירה <code>cb(2)</code> מיד; אחרת היא join חדש. ה-guards המשותפים מונעים מ-auto-join ולחיצה לרוץ במקביל (double-join). זה תואם את הלקח המתועד "auto-join הוא המודל העובד" (<code>failed-attempts.md</code> §16); ה-split של deferred-join — שהשאיר את המק על ה-Wi-Fi שלו לנצח עם scan רציף — הוא מה שגרם להרעבת ה-advertise, לא ה-auto-join עצמו.</div>
+        <strong>tap-to-connect סימטרי (2026-06-09):</strong> אין auto-join (auto-join נוסה ובוטל — הוא רץ עם <code>cb=nullptr</code> במקביל ללחיצה והקפיא את הספינר). המודל הסופי: לוחצים על מכשיר ב<em>כל</em> צד. <strong>במק</strong> הלחיצה קוראת ישירות ל-<code>clientHandshakeAndJoin</code> (GATT → <code>joinNetwork</code> → Hello). <strong>ב-Windows</strong> אי אפשר להצטרף, אז הלחיצה משדרת marker של connect-request ב-advert (<code>setConnectRequested(true)</code>, magic עם בייט אחרון D1 במקום D0 — אפס בייטים נוספים); המק רואה את ה-marker ב-onFound (<code>d.connectRequested</code>) ומתחיל את ה-join בעצמו. אחר כך Windows עושה <code>poll</code> על <code>peersByName[name].ip</code> עד שה-Hello של המק ממלא אותו, מחזיר marker ל-D0, וסוגר את הספינר. ה-guards המשותפים (<code>helloSent</code>+<code>attemptInFlight</code>) מונעים שלחיצה מקומית במק ובקשת-חיבור מ-Windows ירוצו במקביל ויעשו double-join. למנגנון ה-advert המלא ראה את ה-section "<a href="#symmetric-connect">Symmetric connect</a>".</div>
     </div>
     <div class="code-row">
       <div class="code-cell"><span class="cm">// MacWifiClientBroker.mm — joinNetwork retry tuning</span>
