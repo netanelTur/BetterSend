@@ -85,6 +85,12 @@ void TcpTransport::setSaveDirectory(std::string dir) {
 		saveDir_.empty() ? "<temp>" : saveDir_);
 }
 
+void TcpTransport::setDeviceName(std::string name) {
+	std::lock_guard<std::mutex> lk(nameMu_);
+	localDeviceName_ = std::move(name);
+	BS_LOG_INFO(kComponent, "Outgoing sender name set to '{}'", localDeviceName_);
+}
+
 void TcpTransport::setProgressCallback(ProgressFn cb) {
 	progressCb_ = std::move(cb);
 }
@@ -238,7 +244,12 @@ void TcpTransport::startServer(int port, std::function<void(Transfer)> onReceive
 bool TcpTransport::send(const std::string& ip, int port, const ITransferable& item) {
 	BS_LOG_INFO(kComponent, "Sending to {}:{}", ip, port);
 	try {
-		const auto headerStruct = item.makeHeader(localDeviceName_);
+		std::string senderName;
+		{
+			std::lock_guard<std::mutex> lk(nameMu_);
+			senderName = localDeviceName_;
+		}
+		const auto headerStruct = item.makeHeader(senderName);
 		const auto encoded      = protocol_->encodeHeader(headerStruct);
 		const auto payload      = item.payload();
 

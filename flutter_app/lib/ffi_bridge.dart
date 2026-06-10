@@ -97,6 +97,9 @@ typedef _DartSetProgressCb   = void Function(
 typedef _NativeSetSaveDir = Void Function(Pointer<Void>, Pointer<Utf8>);
 typedef _DartSetSaveDir   = void Function(Pointer<Void>, Pointer<Utf8>);
 
+typedef _NativeSetName = Void Function(Pointer<Void>, Pointer<Utf8>);
+typedef _DartSetName   = void Function(Pointer<Void>, Pointer<Utf8>);
+
 typedef _NativeFreeCstr = Void Function(Pointer<Utf8>);
 typedef _DartFreeCstr   = void Function(Pointer<Utf8>);
 
@@ -114,6 +117,7 @@ final _declineTransfer  = _lib.lookupFunction<_NativeDeclineTransfer, _DartDecli
 final _setReqCb         = _lib.lookupFunction<_NativeSetReqCb,        _DartSetReqCb>        ('bettersend_set_request_callback');
 final _setDeclineCb     = _lib.lookupFunction<_NativeSetDeclineCb,    _DartSetDeclineCb>    ('bettersend_set_decline_callback');
 final _setSaveDir       = _lib.lookupFunction<_NativeSetSaveDir,      _DartSetSaveDir>      ('bettersend_set_save_dir');
+final _setDeviceName    = _lib.lookupFunction<_NativeSetName,        _DartSetName>         ('bettersend_set_device_name');
 final _connectPeer      = _lib.lookupFunction<_NativeConnectPeer,    _DartConnectPeer>     ('bettersend_connect_peer');
 final _setProgressCb    = _lib.lookupFunction<_NativeSetProgressCb,  _DartSetProgressCb>   ('bettersend_set_progress_callback');
 final _freeCstr         = _lib.lookupFunction<_NativeFreeCstr,        _DartFreeCstr>        ('bettersend_free_cstr');
@@ -274,6 +278,18 @@ class BetterSendBridge {
 			_setSaveDir(_handle, dirPtr);
 		} finally {
 			malloc.free(dirPtr);
+		}
+	}
+
+	/// Change the display name peers see. Updates both the BLE advert (live
+	/// re-advertise) and the name stamped into outgoing TCP headers. The native
+	/// side clamps to the 20-byte BLE budget on a UTF-8 boundary.
+	void setDeviceName(String name) {
+		final namePtr = name.toNativeUtf8();
+		try {
+			_setDeviceName(_handle, namePtr);
+		} finally {
+			malloc.free(namePtr);
 		}
 	}
 

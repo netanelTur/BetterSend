@@ -43,6 +43,12 @@ inline constexpr uint16_t kBleCompanyId       = 0xFFFF;
 inline constexpr uint8_t  kBleMagicBytes[]    = {0xBE, 0x77, 0xEC, 0xD0};
 inline constexpr int      kBleMaxNameLen      = 20;
 
+// Delay before re-starting the advertiser after a live rename. CoreBluetooth's
+// stopAdvertising is async against the blued daemon; a synchronous restart is
+// dropped because isAdvertising hasn't flipped yet. We stop, wait this long on
+// the peripheral's own dispatch queue, then start again with the new name.
+inline constexpr int      kBleRestartDelayMs  = 200;
+
 // Connect-request advert variant. Identical to kBleMagicBytes except the last
 // byte (D1 vs D0), so it costs zero extra advertisement bytes. The host
 // (Windows) republishes its ManufacturerData with THIS magic while its user is

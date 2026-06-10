@@ -438,6 +438,7 @@
     <a href="#ffibridge">ffi_bridge.dart <span class="tag tag-dart">Dart</span></a>
     <a href="#splash">splash_screen.dart <span class="tag tag-dart">Dart</span></a>
     <a href="#homescreen">home_screen.dart <span class="tag tag-dart">Dart</span></a>
+    <a href="#settings-screen">settings_screen.dart <span class="tag tag-dart">Dart</span></a>
     <a href="#transfer-screen">transfer_screen.dart <span class="tag tag-dart">Dart</span></a>
     <a href="#device-list">device_list_screen.dart <span class="tag tag-dart">Dart</span></a>
   </div>
@@ -481,7 +482,8 @@
     <span style="background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;">Future — Cloud Room</span>
   </div>
   <div class="meta">
-    <span>עדכון אחרון: 2026-06-09 (Progress bar להעברות קבצים בשני הצדדים — TcpTransport::setProgressCallback [dir 0=שליחה/1=קבלה, throttle לאחוז שלם, קבצים בלבד]; send עכשיו chunked; bettersend_set_progress_callback + bridge.onProgress + TransferProgress; UI: סקשן "Transfers" עם LinearProgressIndicator. + Step 2 tap-to-connect סימטרי אומת ועובד [תוקן publisher abort status=4 + alias לשם placeholder].)</span>
+    <span>עדכון אחרון: 2026-06-09 (שם תצוגה שהמשתמש בוחר — מסך Settings חדש [settings_screen.dart] עם שדה שם + בורר תיקיית הורדה, נשמרים ב-shared_preferences. החלה חיה: bettersend_set_device_name מעדכן את ה-advert [re-advertise נקי] ואת שם השולח ב-TCP. הגנות: clampUtf8 [חיתוך על גבול UTF-8, לא באמצע תו], nameMu סביב localDeviceName, השהיית 200ms ל-restart של CBPeripheralManager על התור שלו, ולידציית בתים ב-UI.)</span>
+    <span>עדכון קודם: 2026-06-09 (Progress bar להעברות קבצים בשני הצדדים — TcpTransport::setProgressCallback [dir 0=שליחה/1=קבלה, throttle לאחוז שלם, קבצים בלבד]; send עכשיו chunked; bettersend_set_progress_callback + bridge.onProgress + TransferProgress; UI: סקשן "Transfers" עם LinearProgressIndicator. + Step 2 tap-to-connect סימטרי אומת ועובד [תוקן publisher abort status=4 + alias לשם placeholder].)</span>
     <span>עדכון קודם: 2026-06-09 (תוקן באג פריסה בעמודת ההסברים; הושלם תיעוד לקבצים שחסרו — Device.h, Logger.h, IClipboard.h, CMakeLists.txt, בדיקות GTest, transfer_screen.dart, device_list_screen.dart; תוקנו קישורי TOC שבורים)</span>
     <span>עדכון קודם: 2026-06-09 (תיקון עיצוב — sections מ-IConnectionBroker.h ואילך; מיזוג 0a3e58b: שם placeholder ל-Windows כשאין LocalName + ביטול duty-cycle של BLE)</span>
     <span>שלב פעיל: Phase 1 — צינור: BLE discovery → Windows מקים hotspot (eager) → tap-to-connect סימטרי (לחיצה במק = join ישיר; לחיצה ב-Windows משדרת connect-request ב-advert והמק מצטרף) → Hello → TCP. Control plane של request/accept/decline פעיל.</span>
@@ -2463,6 +2465,46 @@ if (!_devices.any((e) =&gt; e.name == d.name)) _devices.add(d);</div>
           <br><br>
           שתי דקויות שה-review תפס: (1) <strong>guard חי, לא דגל דביק</strong> — התנאי מחושב מחדש מ-<code>_devices</code> בכל callback, כך שאם הכרטיס ה-routable נגזם (המק התנתק) ה-placeholder חוזר ו-reconnect מרפא את עצמו. (2) <strong>liveness proxy</strong> — ה-Hello נורה <em>פעם אחת</em> בלבד (<code>firstSighting</code> ב-<code>bettersend_api.cpp</code>), אז בלי רענון הכרטיס ה-routable היה נגזם אחרי 10s באמצע סשן; ה-advert ה-BLE המתמשך מרענן את <code>_lastSeen</code> שלו במקום. בונוס: ה-placeholder ב-Windows היה <em>בלתי-לחיץ</em> בכלל (לחיצה עליו פונה ל-<code>peersByName["BetterSend-2B73"]</code> שאין לו IP → timeout status 3), אז ה-collapse הוא תיקון <em>נכונות</em>, לא רק קוסמטיקה.
         </div>
+      </div>
+    </div>
+
+    <div class="code-row">
+      <div class="code-cell"><span class="cm">// bettersend_api.cpp — live rename (Settings → bridge.setDeviceName)</span>
+<span class="ty">void</span> <span class="fn">bettersend_set_device_name</span>(<span class="ty">void</span>* handle, <span class="kw">const</span> <span class="ty">char</span>* name) {
+    <span class="ty">auto</span>* ctx = <span class="fn">static_cast</span>&lt;BetterSendContext*&gt;(handle);
+    <span class="ty">std</span>::string clean = <span class="fn">clampUtf8</span>(name, kBleMaxNameLen); <span class="cm">// גבול UTF-8</span>
+    { <span class="ty">std</span>::lock_guard <span class="fn">lock</span>(ctx-&gt;nameMu); ctx-&gt;localDeviceName = clean; } <span class="cm">// משוחרר לפני I/O</span>
+    ctx-&gt;transport-&gt;<span class="fn">setDeviceName</span>(clean);                  <span class="cm">// שם השולח ב-Hello/headers</span>
+    <span class="kw">if</span> (ctx-&gt;advertisePort != 0)
+        ctx-&gt;discovery-&gt;<span class="fn">startAdvertising</span>(clean, ctx-&gt;advertisePort); <span class="cm">// re-advertise</span>
+}</div>
+      <div class="anno-cell key">
+        <strong>שם תצוגה שהמשתמש בוחר (2026-06-09).</strong> עד עכשיו השם היה ה-hostname של ה-OS בלבד. עכשיו מסך <code>Settings</code> נותן לבחור שם, נשמר ב-<code>shared_preferences</code> ונטען ב-<code>main.dart</code> (fallback ל-hostname). <code>bettersend_set_device_name</code> מחיל אותו <em>חי</em> על שני הערוצים: (1) ה-advert של BLE, (2) שם השולח ב-TCP. שלוש הגנות שה-review דרש: <strong>(א) UTF-8</strong> — <code>clampUtf8</code> חותך לגבול code-point, אחרת שם בעברית/אימוג'י נחתך באמצע תו ומשחית את ה-Hello או נראה ג'יבריש ב-Windows (גם ה-UI חוסם לפי <em>בתים</em>, לא תווים). <strong>(ב) Thread-safety</strong> — <code>nameMu</code> סביב כל קריאה/כתיבה של <code>localDeviceName</code> (השמת <code>std::string</code> לא אטומית; thread רקע שקורא בזמן דריסה = segfault); הנעילה משוחררת <em>לפני</em> כל קריאת רשת. <strong>(ג) re-advertise נקי</strong> — ב-Mac <code>stopAdvertising</code> אסינכרוני מול <code>blued</code>, אז restart מיידי נבלע; עושים stop ואז <code>dispatch_after</code> 200ms <em>על התור של ה-CBPeripheralManager</em> (לא ה-main queue). ב-Windows <code>startPublisher</code> כבר הורס ובונה publisher מחדש → אין "רוח רפאים" של השם הישן.
+        <br><br>
+        <strong>הקאץ' שנשאר (לא משתנה):</strong> שם מותאם על <em>המק</em> עדיין לא יופיע ב-advert של Windows (נשאר <code>BetterSend-&lt;hex&gt;</code>) עד ה-TCP Hello — אותו quirk של 31-byte/SCAN_RSP. על <em>Windows</em> השם נראה למק מיד (ManufacturerData).
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="settings-screen" class="file-section">
+  <h2>settings_screen.dart</h2>
+  <div class="path">flutter_app/lib/screens/settings_screen.dart — העדפות משתמש (שם תצוגה + תיקיית הורדה)</div>
+  <div class="code-rows">
+    <div class="code-row">
+      <div class="code-cell">// ולידציה לפי בתים — לא maxLength (סופר תווים/runes)
+class _Utf8ByteLimitFormatter extends TextInputFormatter {
+  final int maxBytes;
+  @override
+  TextEditingValue formatEditUpdate(old, neu) {
+    if (utf8.encode(neu.text).length &gt; maxBytes) return old; // דחה
+    return neu;
+  }
+}
+// Save: persist + bridge.setDeviceName(name)  →  re-advertise חי
+// תיקיית הורדה: getDirectoryPath → bridge.setSaveDir + persist(save_dir)</div>
+      <div class="anno-cell info">
+        מסך אחד שמרכז את שתי ההעדפות הנשמרות. <strong>שם תצוגה:</strong> <code>TextField</code> עם <code>_Utf8ByteLimitFormatter(20)</code> שחוסם כל הקלדה שתעבור 20 בתים UTF-8 (תואם <code>kBleMaxNameLen</code>), עם מונה "X/20 bytes". שמירה כותבת ל-<code>shared_preferences['display_name']</code> וקוראת ל-<code>bridge.setDeviceName</code> → החלה מיידית. <strong>תיקיית הורדה:</strong> הבורר חי <em>רק כאן</em> (הוסר לגמרי מ-<code>home_screen</code> — מקום אחד בלבד); נשמר ל-<code>shared_preferences['save_dir']</code>. <code>home._initSaveDir</code> רק <em>טוען</em> את הנתיב ודוחף אותו ל-native ב-startup (saved → fallback ל-Downloads), בלי UI. ה-gear ב-AppBar של home פותח את המסך.
       </div>
     </div>
   </div>

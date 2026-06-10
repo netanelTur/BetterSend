@@ -7,6 +7,7 @@
 #include "TransferProtocol.h"
 #include "Logger.h"
 #include "Constants.h"
+#include "Utf8.h"
 
 #include <nlohmann/json.hpp>
 
@@ -106,7 +107,13 @@ using TransferProgressCallback = void(*)(int dir, const char* peerName,
                                          long long done, long long total);
 
 struct BetterSendContext {
-	std::string                          localDeviceName;
+	// Guards localDeviceName: the UI thread can rename (Settings) while a
+	// background thread reads it (Hello builder, re-advertise). std::string
+	// assignment isn't atomic and may reallocate — concurrent read = segfault.
+	// Hold nameMu only to copy a local; never across network/I/O calls.
+	std::mutex                           nameMu;
+	std::string                          localDeviceName;   // guarded by nameMu
+	int                                  advertisePort{0};  // last port advertised on
 	std::shared_ptr<TransferProtocol>    protocol;
 	std::unique_ptr<TcpTransport>        transport;
 	std::unique_ptr<IDiscovery>          discovery;
@@ -286,7 +293,12 @@ void clientHandshakeAndJoin(BetterSendContext& ctx, const Device& peer,
 		// DHCP and the Windows TCP listener may take a moment to become
 		// reachable after the join completes. Retry the Hello briefly so
 		// the user-visible delay between joining and ready stays tight.
-		TextTransferable hello{helloBody(ctx.localDeviceName)};
+		std::string myName;
+		{
+			std::lock_guard lock(ctx.nameMu);
+			myName = ctx.localDeviceName;
+		}
+		TextTransferable hello{helloBody(myName)};
 		for (int attempt = 1; attempt <= kHelloAfterJoinRetries; ++attempt) {
 			std::this_thread::sleep_for(std::chrono::milliseconds(kHelloRetryMs));
 			if (ctx.transport->send(hostIp, hostPort, hello)) {
@@ -551,10 +563,40 @@ void bettersend_start_advertising(void* handle, int port) {
 	if (!handle) return;
 	try {
 		auto* ctx = static_cast<BetterSend::BetterSendContext*>(handle);
-		ctx->discovery->startAdvertising(ctx->localDeviceName, port);
+		std::string name;
+		{
+			std::lock_guard lock(ctx->nameMu);
+			name = ctx->localDeviceName;
+		}
+		ctx->advertisePort = port;  // remembered so a live rename can re-advertise
+		ctx->discovery->startAdvertising(name, port);
 		BS_LOG_INFO("API", "Advertising started on port {}", port);
 	} catch (const std::exception& e) {
 		BS_LOG_ERROR("API", "bettersend_start_advertising failed: {}", e.what());
+	}
+}
+
+// Live rename: update the name stamped into the advert (peers see it
+// immediately on Windows via ManufacturerData; on Mac it reaches Windows only
+// via the next TCP Hello) and into outgoing TCP headers. clampUtf8 keeps the
+// 20-byte BLE budget without splitting a multi-byte code point.
+void bettersend_set_device_name(void* handle, const char* name) {
+	if (!handle || !name) return;
+	try {
+		auto* ctx = static_cast<BetterSend::BetterSendContext*>(handle);
+		std::string clean = BetterSend::clampUtf8(name, BetterSend::kBleMaxNameLen);
+		{
+			std::lock_guard lock(ctx->nameMu);   // released before any I/O below
+			ctx->localDeviceName = clean;
+		}
+		// Use the local `clean` copy for the calls below — never hold nameMu
+		// across a network/I/O call.
+		if (ctx->transport) ctx->transport->setDeviceName(clean);
+		if (ctx->discovery && ctx->advertisePort != 0)
+			ctx->discovery->startAdvertising(clean, ctx->advertisePort);
+		BS_LOG_INFO("API", "Device name set to '{}'", clean);
+	} catch (const std::exception& e) {
+		BS_LOG_ERROR("API", "bettersend_set_device_name failed: {}", e.what());
 	}
 }
 

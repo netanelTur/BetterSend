@@ -13,6 +13,7 @@
 #include "BleDiscovery.h"
 #include "Constants.h"
 #include "Logger.h"
+#include "Utf8.h"
 
 #include <winrt/base.h>
 #include <winrt/Windows.Foundation.h>
@@ -79,9 +80,10 @@ winrt_strm::IBuffer makeBetterSendPayload(const std::string& deviceName,
 	winrt_strm::DataWriter writer;
 	const uint8_t* magic = connectRequested ? kBleConnectMagicBytes : kBleMagicBytes;
 	for (size_t i = 0; i < sizeof(kBleMagicBytes); ++i) writer.WriteByte(magic[i]);
-	int n = static_cast<int>(deviceName.size());
-	if (n > kBleMaxNameLen) n = kBleMaxNameLen;
-	for (int i = 0; i < n; ++i) writer.WriteByte(static_cast<uint8_t>(deviceName[i]));
+	// Byte-safe trim to the advertisement budget — clampUtf8 never splits a
+	// multi-byte code point, so the peer always decodes a valid name.
+	const std::string name = clampUtf8(deviceName, kBleMaxNameLen);
+	for (char c : name) writer.WriteByte(static_cast<uint8_t>(c));
 	return writer.DetachBuffer();
 }
 

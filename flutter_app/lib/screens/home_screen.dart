@@ -3,8 +3,10 @@ import 'dart:async';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../ffi_bridge.dart';
+import 'settings_screen.dart';
 
 // Liveness windows — keep in sync with cpp_core/include/Constants.h.
 const Duration _kPeerHeartbeat = Duration(seconds: 2);
@@ -27,7 +29,6 @@ class _HomeScreenState extends State<HomeScreen> {
 	// 100% so completed transfers don't linger.
 	final Map<String, TransferProgress> _progress = {};
 	Timer?                          _pruner;
-	String?                         _saveDir;
 
 	@override
 	void initState() {
@@ -36,21 +37,20 @@ class _HomeScreenState extends State<HomeScreen> {
 		_initSaveDir();
 	}
 
-	// Default the save folder to the OS Downloads dir so files land somewhere
-	// sensible before the user picks. Pushed down to native immediately.
+	// Restore the user's saved folder if they picked one in Settings; otherwise
+	// default to the OS Downloads dir so files land somewhere sensible. Pushed
+	// down to native immediately. The folder UI lives only in Settings now.
 	Future<void> _initSaveDir() async {
-		final dir = await getDownloadsDirectory();
-		if (dir == null || !mounted) return;
-		widget.bridge.setSaveDir(dir.path);
-		setState(() => _saveDir = dir.path);
+		final prefs = await SharedPreferences.getInstance();
+		final saved = prefs.getString(kPrefSaveDir);
+		final dir = saved ?? (await getDownloadsDirectory())?.path;
+		if (dir == null) return;
+		widget.bridge.setSaveDir(dir);
 	}
 
-	Future<void> _pickSaveDir() async {
-		final picked = await FilePicker.platform.getDirectoryPath(
-			dialogTitle: 'Choose where received files are saved');
-		if (picked == null || !mounted) return;
-		widget.bridge.setSaveDir(picked);
-		setState(() => _saveDir = picked);
+	void _openSettings() {
+		Navigator.of(context).push(MaterialPageRoute(
+			builder: (_) => SettingsScreen(bridge: widget.bridge)));
 	}
 
 	void _initBridge() {
@@ -298,7 +298,16 @@ class _HomeScreenState extends State<HomeScreen> {
 	@override
 	Widget build(BuildContext context) {
 		return Scaffold(
-			appBar: AppBar(title: const Text('BetterSend')),
+			appBar: AppBar(
+				title: const Text('BetterSend'),
+				actions: [
+					IconButton(
+						icon: const Icon(Icons.settings),
+						tooltip: 'Settings',
+						onPressed: _openSettings,
+					),
+				],
+			),
 			body: Padding(
 				padding: const EdgeInsets.all(24.0),
 				child: Column(
@@ -346,24 +355,6 @@ class _HomeScreenState extends State<HomeScreen> {
 						],
 
 						const SizedBox(height: 24),
-
-						// ── Save folder ────────────────────────────────────────────
-						Card(
-							child: ListTile(
-								leading: const Icon(Icons.folder, size: 28),
-								title: const Text('Save received files to',
-									style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-								subtitle: Text(_saveDir ?? 'Default (temp folder)',
-									style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
-									overflow: TextOverflow.ellipsis),
-								trailing: TextButton(
-									onPressed: _pickSaveDir,
-									child: const Text('Change'),
-								),
-							),
-						),
-
-						const SizedBox(height: 16),
 
 						// ── Received transfers ────────────────────────────────────
 						const Text('Received',

@@ -99,7 +99,9 @@ flutter run -d windows
 >
 > **Live transfer progress (both sides).** `TcpTransport::setProgressCallback` reports byte progress while a **file** transfer is in flight — `dir 0` sending / `dir 1` receiving, throttled to integer-percent changes (≤101 calls/transfer; control/clipboard/Hello are skipped). It flows `bettersend_set_progress_callback` → `bridge.onProgress(TransferProgress)` → a "Transfers" section on the home screen with a `LinearProgressIndicator` per active transfer (cleared shortly after 100%). The send path is chunked for this; `payload()` is still fully in memory (fine for Phase 1; true streaming send is a Phase 4 follow-up).
 >
-> **Receiver picks the save folder.** The home screen has a "Save received files to" card; it defaults to the OS Downloads directory and a Change button opens a native folder picker. The choice flows `bridge.setSaveDir` → `bettersend_set_save_dir` → `TcpTransport::setSaveDirectory`; incoming files land in `<chosen-dir>/<timestamp>_<name>`. Empty selection falls back to a `bettersend_incoming` folder under the OS temp dir.
+> **Custom display name.** A Settings screen (gear icon on the home app bar) lets you pick the name other devices see; it persists via `shared_preferences` (falls back to the OS hostname). Changing it applies **live** — `bridge.setDeviceName` → `bettersend_set_device_name` re-advertises over BLE and updates the name stamped into outgoing TCP headers, no restart. The name is byte-capped to `kBleMaxNameLen` (20) on a UTF-8 boundary (`clampUtf8` in `Utf8.h`) so a Hebrew/emoji name is never split mid-codepoint; the input field validates the same budget in bytes. Caveat: a renamed **Mac** still shows as `BetterSend-<hex>` in the Windows advert list until its first TCP Hello (the same CoreBluetooth SCAN_RSP limitation) — a renamed **Windows** machine is visible to the Mac immediately.
+>
+> **Receiver picks the save folder.** The Settings screen has a "Save received files to" card; it defaults to the OS Downloads directory and a Change button opens a native folder picker. The choice now persists via `shared_preferences` (key `save_dir`) and flows `bridge.setSaveDir` → `bettersend_set_save_dir` → `TcpTransport::setSaveDirectory`; incoming files land in `<chosen-dir>/<timestamp>_<name>`. Empty selection falls back to a `bettersend_incoming` folder under the OS temp dir.
 >
 > **Live peer list** — `kPeerHeartbeatSec=2` and `kPeerStaleSec=10` in `Constants.h` define how the UI keeps the device list fresh: native re-emits each peer every 2s; Flutter prunes peers not seen for 10s. Both sides dedupe by case-insensitive name (Windows can advertise under both `NETANELTUR` and `NetanelTur` simultaneously; we surface a single canonical entry).
 >
@@ -124,7 +126,7 @@ BetterSend/
 │   │   ├── BonjourDiscovery.h  MdnsDiscovery.h  BleDiscovery.h
 │   │   ├── TcpTransport.h  TransferProtocol.h
 │   │   ├── FileTransferable.h  TextTransferable.h
-│   │   ├── Device.h  Constants.h  Logger.h
+│   │   ├── Device.h  Constants.h  Logger.h  Utf8.h
 │   │   └── mdns.h            # Single-header mDNS (mjansson, public domain)
 │   ├── src/
 │   │   ├── BonjourDiscovery.cpp        # Apple-pair future phase (excluded from Phase 1 build)
@@ -145,6 +147,7 @@ BetterSend/
 │   │   ├── main.dart
 │   │   └── screens/
 │   │       ├── home_screen.dart   # Discovery + device list
+│   │       ├── settings_screen.dart # Display name + save folder (persisted)
 │   │       ├── splash_screen.dart
 │   │       ├── transfer_screen.dart
 │   │       └── device_list_screen.dart

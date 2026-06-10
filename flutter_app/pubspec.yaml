@@ -13,6 +13,7 @@ dependencies:
   path: ^1.9.0             # path manipulation (basename, join, etc.)
   path_provider: ^2.1.0    # get temp/documents directory for saving received files
   file_picker: ^8.0.0      # native file picker for the "send file" flow
+  shared_preferences: ^2.2.0  # persist display name + save-dir across launches
 
   # שלב 3 (Drag & Drop — Desktop):
   # desktop_drop: ^0.4.0

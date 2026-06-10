@@ -28,6 +28,11 @@ public:
 	// receive runs on background threads, the UI may set this concurrently.
 	void setSaveDirectory(std::string dir);
 
+	// Update the device name stamped into outgoing headers (Hello + transfers).
+	// The UI may change it (Settings rename) while background threads send, so
+	// reads in send() and writes here are guarded by nameMu_.
+	void setDeviceName(std::string name);
+
 	// Progress callback for in-flight FILE transfers (control/clipboard/Hello
 	// messages are too small to report). dir: 0 = sending, 1 = receiving.
 	// Invoked on the transport's background threads, throttled to integer-
@@ -42,7 +47,8 @@ private:
 	std::unique_ptr<Impl> impl_;
 
 	std::shared_ptr<IProtocol>      protocol_;
-	std::string                     localDeviceName_;
+	std::mutex                      nameMu_;
+	std::string                     localDeviceName_;   // guarded by nameMu_
 	std::function<void(Transfer)>   onReceive_;
 	ProgressFn                      progressCb_;
 	std::thread                     ioThread_;

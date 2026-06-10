@@ -1,7 +1,9 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'ffi_bridge.dart';
 import 'screens/home_screen.dart';
+import 'screens/settings_screen.dart';
 import 'screens/splash_screen.dart';
 
 // ── main.dart ─────────────────────────────────────────────────────────────────
@@ -12,15 +14,21 @@ import 'screens/splash_screen.dart';
 //   2. Show SplashScreen, then navigate to HomeScreen
 //   3. Pass bridge down to HomeScreen
 
-void main() {
-	// Each machine advertises a unique name so peers can distinguish each other.
+Future<void> main() async {
+	WidgetsFlutterBinding.ensureInitialized();
+
+	// Prefer the name the user chose in Settings; fall back to the OS hostname
+	// so a fresh install still advertises something distinguishable.
 	// Platform.localHostname returns the OS hostname (Windows, macOS, Linux);
 	// on mobile we'd fall back to device_info_plus, but Phase 1 is desktop-only.
-	String deviceName;
-	try {
-		deviceName = Platform.localHostname;
-	} catch (_) {
-		deviceName = 'BetterSend';
+	final prefs = await SharedPreferences.getInstance();
+	String deviceName = prefs.getString(kPrefDisplayName) ?? '';
+	if (deviceName.isEmpty) {
+		try {
+			deviceName = Platform.localHostname;
+		} catch (_) {
+			deviceName = 'BetterSend';
+		}
 	}
 	final bridge = BetterSendBridge(deviceName);
 	runApp(BetterSendApp(bridge: bridge));

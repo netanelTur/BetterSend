@@ -31,6 +31,7 @@
 #include "BleDiscovery.h"
 #include "Constants.h"
 #include "Logger.h"
+#include "Utf8.h"
 
 #include <algorithm>
 #include <atomic>
@@ -63,10 +64,9 @@ namespace BetterSend {
 namespace BetterSend {
 
 static NSString* makeAdvertName(const std::string& deviceName) {
-	std::string trimmed = deviceName;
-	if (trimmed.size() > static_cast<size_t>(kBleMaxNameLen)) {
-		trimmed.resize(kBleMaxNameLen);
-	}
+	// Byte-safe trim to the 31-byte advertisement budget — a blind resize()
+	// could split a multi-byte code point and produce an invalid LocalName.
+	std::string trimmed = clampUtf8(deviceName, kBleMaxNameLen);
 	return [NSString stringWithUTF8String:trimmed.c_str()];
 }
 
@@ -125,7 +125,20 @@ public:
 				delegate_.peripheral = [[CBPeripheralManager alloc]
 					initWithDelegate:delegate_ queue:queue_];
 			} else if (delegate_.peripheral.state == CBManagerStatePoweredOn) {
-				kickAdvertise();
+				if (delegate_.peripheral.isAdvertising) {
+					// Live rename: the new LocalName only takes effect on a fresh
+					// startAdvertising:, but kickAdvertise no-ops while already up.
+					// stopAdvertising is async on blued, so re-kick after a short
+					// delay on the peripheral's own queue (a synchronous restart
+					// would be dropped). advertName is already updated above.
+					[delegate_.peripheral stopAdvertising];
+					auto* self = this;
+					dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
+						(int64_t)kBleRestartDelayMs * NSEC_PER_MSEC),
+						queue_, ^{ self->kickAdvertise(); });
+				} else {
+					kickAdvertise();
+				}
 			}
 		}
 	}
